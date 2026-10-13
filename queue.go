@@ -6,6 +6,8 @@ package main
 //   c1 - [01:30] Livraria de Fire (Tier 3): Kira Zinha | Next: Real Calvon +1
 //   a1 - [00:22] Cobra Castelo (Tier 1): Jairo Slayer | Next: Lord Tenchi
 //   d7 - [00:06] DT -1 (Tier 1): Elite'Nitrox
+//   C1 - [ 02:27 ] Livraria de Fire (Tier 3): Lord Tenchi | Next: Real Calvon [ Fim em ~04:27 ]   (13/10: espaços no tempo)
+//   R9 - [ Aceitar 00:03 ] Upper Roshamuul (Tier 1): Next: Alxoff — aguardando aceitação         (ninguém caçando ainda)
 //
 // Respawn livre = o código não aparece na lista. Nesse caso NUNCA se envia nada.
 // Qualquer linha que não seja entendida com segurança também nunca libera envio.
@@ -26,7 +28,9 @@ var (
 	reNextMarker = regexp.MustCompile(`(?i)\bNext\s*:`)
 	reNextWord   = regexp.MustCompile(`(?i)\bNext\b`)
 	reExtra      = regexp.MustCompile(`\s*\+\s*([1-9][0-9]{0,2})\s*$`)
-	reTimer      = regexp.MustCompile(`^\[(\d{1,3}):([0-5]\d)\]\s*`)
+	// Tempo no começo da linha: "[01:45]", "[ 01:45 ]" ou com uma palavra antes, ex.: "[ Aceitar 00:03 ]".
+	reTimer      = regexp.MustCompile(`^\[\s*(?:([^\[\]\d]*?)\s*)?(\d{1,3})\s*:\s*([0-5]\d)\s*\]\s*`)
+	reAwaiting   = regexp.MustCompile(`(?i)\s*[—–-]+\s*aguardando\b.*$`)
 	reLastUpdate = regexp.MustCompile(`(?i)last\s*update\s*:\s*(\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2}(?::\d{2})?)`)
 	reCode       = regexp.MustCompile(`^[A-Z]{1,3}[0-9]{1,3}$`)
 	reAnyLine    = regexp.MustCompile(`(?i)^\s*(?:[•*·]\s*)?[a-z]{1,3}[0-9]{1,3}\s*[-–—]\s*\S`)
@@ -66,6 +70,10 @@ type QueueState struct {
 	Reason    string `json:"reason"`    // por que não é válida
 	HasTimer  bool   `json:"hasTimer"`  // a linha mostra o tempo que falta, ex.: [01:45]
 	Remaining int    `json:"remaining"` // minutos que faltam para quem está caçando sair
+	// Accepting: quem caçava saiu e o 1º da fila está aceitando o respawn ("[ Aceitar 00:03 ]").
+	// Ninguém está caçando ainda: isso não é entrada na hunt nem falha.
+	Accepting  bool   `json:"accepting"`
+	AcceptText string `json:"acceptText"` // ex.: "Aceitar 00:03"
 }
 
 func lineRegexp(code string) *regexp.Regexp {
@@ -82,6 +90,7 @@ func cleanNext(seg string) (string, bool) {
 	for i := 0; i < 3 && reTag.MatchString(seg); i++ {
 		seg = strings.TrimSpace(reTag.ReplaceAllString(seg, ""))
 	}
+	seg = strings.TrimSpace(reAwaiting.ReplaceAllString(seg, "")) // "Alxoff — aguardando aceitação"
 	if seg == "" || seg == "-" || seg == "—" || seg == "?" || strings.Contains(seg, "|") || strings.Contains(seg, "[") {
 		return "", false
 	}
@@ -165,10 +174,26 @@ func ParseQueue(desc, code string) QueueState {
 		}
 	}
 	if m := reTimer.FindStringSubmatchIndex(occupant); m != nil {
-		h, _ := strconv.Atoi(occupant[m[2]:m[3]])
-		mi, _ := strconv.Atoi(occupant[m[4]:m[5]])
-		st.HasTimer, st.Remaining = true, h*60+mi
-		occupant = strings.TrimSpace(occupant[m[1]:])
+		label := ""
+		if m[2] >= 0 {
+			label = strings.TrimSpace(occupant[m[2]:m[3]])
+		}
+		h, _ := strconv.Atoi(occupant[m[4]:m[5]])
+		mi, _ := strconv.Atoi(occupant[m[6]:m[7]])
+		rest := strings.TrimSpace(occupant[m[1]:])
+		switch {
+		case label == "":
+			st.HasTimer, st.Remaining = true, h*60+mi
+			occupant = rest
+		case strings.Contains(strings.ToLower(label), "aceit") && count > 0:
+			// Ninguém caçando: o 1º da fila está aceitando. A linha é "Respawn (Tier N): Next: Fulano".
+			st.Valid, st.Accepting, st.Count, st.First, st.Reason = true, true, count, first, ""
+			st.AcceptText = label + " " + occupant[m[4]:m[5]] + ":" + occupant[m[6]:m[7]]
+			return st
+		default:
+			st.Reason = "Etiqueta de tempo desconhecida na linha (\"" + label + "\")"
+			return st
+		}
 	}
 	if occupant == "" {
 		return st
@@ -224,6 +249,9 @@ func Summarize(st QueueState, position int) string {
 	}
 	if !st.Valid {
 		return "Agora: " + st.Reason + "."
+	}
+	if st.Accepting {
+		return "Agora: ninguém caçando; " + st.First + " está aceitando o respawn (" + st.AcceptText + ")."
 	}
 	fila := "ninguém no next"
 	switch {

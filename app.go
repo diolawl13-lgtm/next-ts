@@ -764,8 +764,8 @@ func sameParty(hunter, next string) bool {
 
 // huntKey identifica "quem está na hunt": muda quando alguém novo entra.
 func huntKey(st QueueState) string {
-	if !st.Present {
-		return ""
+	if !st.Present || st.Accepting {
+		return "" // ninguém caçando
 	}
 	return st.Occupant
 }
@@ -783,6 +783,7 @@ func (a *App) run(ctx context.Context, p runParams) {
 	var timerC <-chan time.Time
 	var detectedAt time.Time
 	entryKey, fireTries := "", 0
+	badReason := "" // último problema de leitura avisado no histórico (não repete)
 	stopTimer := func() {
 		if timer != nil {
 			timer.Stop()
@@ -826,10 +827,14 @@ func (a *App) run(ctx context.Context, p runParams) {
 	waiting := func(st QueueState) string {
 		t := now()
 		switch {
+		case ps.waitKey != "" && st.Accepting:
+			return describe(st, t) + " Se " + st.First + " aceitar e entrar na hunt, ele não desistiu e o plano falha. Continuo esperando."
 		case ps.waitKey != "" && !st.Present:
 			return ps.code + " ficou livre. Continuo esperando " + ps.waitNext + " desistir do next (ou alguém novo entrar na hunt)."
 		case ps.waitKey != "":
 			return describe(st, t) + " Esperando o next desistir."
+		case st.Accepting:
+			return describe(st, t) + " Espero alguém entrar na hunt."
 		case !st.Present:
 			return ps.code + " está livre. Esperando alguém entrar na hunt."
 		case st.Count > 0:
@@ -900,13 +905,21 @@ func (a *App) run(ctx context.Context, p runParams) {
 		})
 		readable := !st.Present || st.Valid
 		k := huntKey(st)
+		// hunting: tem alguém caçando. "Aceitar" (o next aceitando o respawn) ainda não é ninguém caçando.
+		hunting := st.Present && !st.Accepting
+		if !readable && st.Reason != badReason {
+			badReason = st.Reason
+			a.Log("warn", "Plano %s (%s): %s. Não envio nada enquanto a linha estiver assim.", letter(), ps.code, st.Reason)
+		}
 		if !ps.baseSet {
 			if !readable {
 				a.update(p.id, func(m *MonitorView) { m.Status = st.Reason + ". Não envio nada assim." })
 				return false, false
 			}
 			ps.baseSet, ps.lastKey, ps.lastRem, ps.lastHasTimer = true, k, st.Remaining, st.HasTimer
-			if st.Present {
+			if st.Accepting {
+				a.Log("info", "Plano %s (%s): ninguém caçando agora; %s está aceitando o respawn. Espero alguém entrar na hunt.", letter(), ps.code, st.First)
+			} else if st.Present {
 				a.Log("info", "Plano %s (%s): %s está na hunt agora; esse eu não pego. Espero a próxima pessoa entrar.", letter(), ps.code, Hunter(st))
 			} else {
 				a.Log("info", "Plano %s (%s): respawn livre agora. Espero alguém entrar na hunt.", letter(), ps.code)
@@ -921,14 +934,16 @@ func (a *App) run(ctx context.Context, p runParams) {
 		}
 		// Entrou alguém: outra pessoa na hunt, ou a mesma com o tempo pulando para cima (claim novo).
 		// Se a linha sumir por um instante e voltar com a mesma pessoa, NÃO é entrada.
-		entered := st.Present && (k != ps.lastKey || (st.HasTimer && ps.lastHasTimer && st.Remaining > ps.lastRem+5))
-		if st.Present {
+		entered := hunting && (k != ps.lastKey || (st.HasTimer && ps.lastHasTimer && st.Remaining > ps.lastRem+5))
+		if hunting {
 			ps.lastKey, ps.lastRem, ps.lastHasTimer = k, st.Remaining, st.HasTimer
 		}
 		if timer != nil {
 			switch {
 			case !st.Present:
 				cancelPending("o respawn ficou livre antes do envio.")
+			case st.Accepting:
+				cancelPending("quem estava caçando saiu antes do envio (" + st.First + " está aceitando o respawn).")
 			case entered:
 				cancelPending("entrou outra pessoa na hunt antes do envio.")
 			case st.Count > 0 && p.WaitGiveUp:
@@ -961,6 +976,12 @@ func (a *App) run(ctx context.Context, p runParams) {
 				}
 				// Outra pessoa: é uma hunt nova (segue abaixo, como qualquer entrada).
 			} else {
+				if st.Accepting {
+					// Quem caçava saiu e o next está aceitando: ainda não desistiu nem entrou.
+					ps.waitNext = st.First
+					a.update(p.id, func(m *MonitorView) { m.Status = waiting(st) })
+					return false, false
+				}
 				if !st.Present {
 					a.update(p.id, func(m *MonitorView) { m.Status = waiting(st) }) // ficou livre: não é falha
 					return false, false
@@ -1074,6 +1095,10 @@ func (a *App) run(ctx context.Context, p runParams) {
 			case !st.Present:
 				backToWatching()
 				a.Log("warn", "Envio cancelado: na conferência final o %s estava livre. Continuo vigiando.", ps.code)
+				continue
+			case st.Accepting:
+				backToWatching()
+				a.Log("warn", "Envio cancelado: na conferência final quem caçava no %s já tinha saído (%s está aceitando o respawn). Continuo vigiando.", ps.code, st.First)
 				continue
 			case huntKey(st) != entryKey:
 				backToWatching() // a próxima leitura trata quem entrou

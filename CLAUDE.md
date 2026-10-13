@@ -1,6 +1,6 @@
 # Next TS — resumo completo do projeto (para continuar no Claude Code)
 
-> Junto com este resumo vai o arquivo **Next-TS-1.4.0.zip** (última versão). Dentro dele, a pasta `Next-TS/codigo-fonte` tem todo o código, os testes e as ferramentas de build.
+> Junto com este resumo vai o arquivo **Next-TS-1.4.1.zip** (última versão). Dentro dele, a pasta `Next-TS/codigo-fonte` tem todo o código, os testes e as ferramentas de build.
 
 ---
 
@@ -26,7 +26,8 @@ O **Next TS** fica de olho na lista de claimeds que o x3tBot publica na **descri
 - Não mexe em teclado, mouse nem no Tibia. O TS pode ficar minimizado.
 - **A versão 1.0.1 (07/10/2026) foi a primeira versão funcional**, confirmada por mim no TeamSpeak real.
 - A **1.3.0 (09/10/2026)** funcionou perfeitamente no TS real (confirmado por mim em 13/10/2026).
-- A versão atual é a **1.4.0 (13/10/2026)**: "esperar o next desistir" e gravação em vídeo. Testada no TS simulado e a parte Windows no Wine; ainda não testei no TS real.
+- A **1.4.0 (13/10/2026)** trouxe "esperar o next desistir" e gravação em vídeo.
+- A versão atual é a **1.4.1 (13/10/2026)**: corrige a leitura do formato novo do x3tBot de 13/10 (tempo com espaços `[ 01:45 ]` e o estado `Aceitar`). Testada no TS simulado e a parte Windows no Wine; ainda não testei no TS real.
 
 ---
 
@@ -60,9 +61,19 @@ B3 - [01:16] Gloom Pillars: Arthy Zephyr
 - **Respawn livre** = o código não aparece na lista.
 - Existe também um claim de teste, "Claim MissClick Bot Test" (bot "MissClick Bot Test"), que usa o mesmo formato. O x3tBot teve problemas e às vezes usamos esse.
 
+### Formato de 13/10/2026 (print do Claimed MISSCLICK BOT TEST)
+```
+C1 - [ 01:55 ] Livraria de Fire (Tier 3): Lord Tenchi | Next: Real Calvon [ Fim em ~03:55 ]
+R1 - [ 00:26 ] West (Tier 1): Rhoten | Next: Apoloooo [ Fim em ~02:26 ] | Next: Megazord
+R9 - [ Aceitar 00:03 ] Upper Roshamuul (Tier 1): Next: Alxoff — aguardando aceitação
+```
+- O tempo agora vem **com espaços dentro dos colchetes**: `[ 01:55 ]`. As versões até a 1.4.0 não liam isso (bug de 13/10: com a janela ligada nunca enviava; com ela desligada mandava o next de quem já estava caçando ~1 min depois do Iniciar). Corrigido na 1.4.1.
+- `[ Aceitar 00:03 ]`: quem caçava saiu e o 1º da fila está aceitando o respawn. **Ninguém está caçando ainda**: não é entrada nem falha. O nome vem com `— aguardando aceitação`, que não faz parte do nome. Quando a pessoa aceita, aparece como caçador normal (`[ 02:00 ] ...: Alxoff`).
+- Outra palavra desconhecida no lugar do tempo: o app não envia nada e avisa no Histórico.
+
 ---
 
-## 4. Regras atuais do app (versão 1.4.0, combinadas comigo)
+## 4. Regras atuais do app (versão 1.4.1, combinadas comigo)
 
 1. **Só 1º next.** Eu não posso mais pegar 2º next. A opção de 2º next e a opção "pegar logo se já estiver disponível" foram removidas.
 2. **O app só age quando ALGUÉM ENTRA na hunt** depois que eu clico em Iniciar. Quem já estava lá antes ele não pega (esse eu mesmo pego na mão).
@@ -138,7 +149,7 @@ B3 - [01:16] Gloom Pillars: Arthy Zephyr
 | `fonte_dados.go` | Letras da faixa do vídeo (gerado por `build/gerar_fonte.py`) |
 | `window.go` | Janela de horário (`ParseHM`, `ResolveWindow`) e relógio (`now()`) |
 | `query.go` | Cliente do ClientQuery do TS3 |
-| `config.go` | Versão (`1.4.0`), preferências salvas, log em arquivo |
+| `config.go` | Versão (`1.4.1`), preferências salvas, log em arquivo |
 | `presets.go` | Atalhos de claim |
 | `catalog.go` | Lista dos respawns |
 | `platform_windows.go` / `platform_other.go` | DPAPI, abrir o navegador, caixas de mensagem |
@@ -147,7 +158,7 @@ B3 - [01:16] Gloom Pillars: Arthy Zephyr
 | `record_test.go` | Testes do gravador e da comparação de nomes (`go test`) |
 | `capture_windows_test.go` | Teste da captura de verdade no Windows/Wine (`NEXTTS_WINE_TEST=1`, executável chamado `ts3client_...`) |
 | `testes/mock_ts3.py` | TeamSpeak simulado (ClientQuery falso com x3tBot e MissClick Bot Test) |
-| `testes/cenarios.py` | 64 cenários de ponta a ponta com o app de verdade (usa `ffprobe`/`ffmpeg` para conferir os vídeos) |
+| `testes/cenarios.py` | 70 cenários de ponta a ponta com o app de verdade (usa `ffprobe`/`ffmpeg` para conferir os vídeos) |
 | `testes/interface.py` | Testa a janelinha num Chromium (Playwright) e tira prints |
 | `build/gerar_recursos.py` | Gera ícone e informações de versão do .exe (`.syso`) |
 | `build/gerar_fonte.py` | Gera `fonte_dados.go` (letras da faixa do vídeo) |
@@ -157,11 +168,11 @@ B3 - [01:16] Gloom Pillars: Arthy Zephyr
 ### Como compilar e testar
 ```bash
 python3 build/gerar_fonte.py .
-python3 build/gerar_recursos.py . 1.4.0
+python3 build/gerar_recursos.py . 1.4.1
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -H windowsgui" -o "Next TS.exe" .
 python3 build/conferir_exe.py "Next TS.exe"
 go test ./...
-go build -race -o nextts-linux . && python3 -I testes/cenarios.py ./nextts-linux     # 64/64
+go build -race -o nextts-linux . && python3 -I testes/cenarios.py ./nextts-linux     # 70/70
 python3 -I testes/interface.py ./nextts-linux prints/                              # INTERFACE OK
 ```
 Variáveis só para testes: `NEXTTS_DATA` (pasta de dados), `NEXTTS_NO_BROWSER=1`, `NEXTTS_AUTO_EVERY`, `NEXTTS_TEST_CLOCK=HH:MM:SS` (simula o relógio), `NEXTTS_FAKE_TS=<arquivo>` (janela do TS de mentira no Linux: texto, `min` ou `none`) e `NEXTTS_PRINTS=<pasta>` (salva imagens dos vídeos dos cenários).
@@ -179,6 +190,7 @@ O ZIP entregue tem: `Next-TS/Next TS.exe`, `Next-TS/LEIA-ME.txt` e `Next-TS/codi
 - **1.2.1 (08/10):** correção do Parar bem na hora do envio; aba certa do TS antes de enviar; visual refinado.
 - **1.3.0 (09/10):** só 1º next; age só quando alguém entra; janela de início; Plano A/B; atraso de 1 a 2 s; formato novo do x3tBot; relógio e conta na tela; proteção contra a linha "piscar". 48 cenários aprovados. **Funcionou perfeitamente no TS real.**
 - **1.4.0 (13/10):** caixinha "Esperar o next desistir"; gravação em vídeo da janela do TS (5 quadros/s, faixa com relógio, até 10 s depois de enviar). 64 cenários aprovados; captura do Windows testada no Wine.
+- **1.4.1 (13/10):** correção do formato novo do x3tBot: tempo com espaços `[ 01:45 ]` (na 1.3.0 o app não pegou o next do C1 com a janela ligada: "não consegui ler o tempo") e estado `[ Aceitar ... ]` (não é entrada nem falha). 70 cenários aprovados.
 
 ---
 
@@ -187,7 +199,7 @@ O ZIP entregue tem: `Next-TS/Next TS.exe`, `Next-TS/LEIA-ME.txt` e `Next-TS/codi
 - **Modo "só Enter" / envio "por escrito":** o app digitaria (ou só apertaria Enter) no chat privado do x3tBot em vez de mandar pelo ClientQuery. Eu disse "deixa pra depois" (de novo em 13/10). Riscos explicados: rouba o foco do Tibia, precisa da aba certa (senão vai para o canal), mexe no texto digitado. Para o bot e os outros membros, os dois jeitos são iguais.
 - Ideias que já foram sugeridas: aviso de "formato da lista mudou", botão "Copiar lista", favoritos, atalhos de teclado.
 - Achei desnecessário: acompanhar a fila e destacar a resposta do x3tBot.
-- Primeira coisa a fazer: **testar a 1.4.0 no TeamSpeak real**, em Modo teste primeiro, com a gravação ligada (conferir se o vídeo mostra a janela do TS e o "!next" no chat).
+- Primeira coisa a fazer: **testar a 1.4.1 no TeamSpeak real**, em Modo teste primeiro, com a gravação ligada (conferir se o vídeo mostra a janela do TS e o "!next" no chat).
 
 ## 8. Coisas que ficaram de fora na conversa anterior
 

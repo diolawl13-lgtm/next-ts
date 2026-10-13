@@ -1,5 +1,23 @@
-NEXT TS 1.4.0 - COMO USAR
+NEXT TS 1.4.1 - COMO USAR
 ==========================
+
+NOVIDADES DA 1.4.1 (correção importante)
+----------------------------------------
+- Desde 13/10 o x3tBot escreve o tempo com espaços: "[ 01:45 ]" em vez
+  de "[01:45]". As versões anteriores não liam esse tempo. Com a janela
+  de início ligada, elas nunca enviavam ("não consegui ler o tempo que
+  falta"). Com a janela desligada, podiam mandar o !next para quem JÁ
+  ESTAVA caçando, mais ou menos 1 minuto depois do Iniciar. Corrigido:
+  lê o tempo com ou sem espaços.
+- Entende a linha "[ Aceitar 00:03 ] ... Next: Fulano — aguardando
+  aceitação": quem caçava saiu e o próximo está aceitando o respawn.
+  Isso NÃO conta como alguém entrando na hunt e NÃO faz o plano falhar.
+  Quando a pessoa aceita e aparece caçando sem ninguém no next, aí sim o
+  app pega (se a janela de início bater).
+  Com "Esperar o next desistir": se o next que eu esperava aceitar e
+  entrar na hunt, ele não desistiu e o plano falha.
+- Se aparecer outra palavra que o app não conhece no lugar do tempo,
+  ele não envia nada e avisa no Histórico.
 
 NOVIDADES DA 1.4.0
 ------------------

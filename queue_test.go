@@ -250,3 +250,61 @@ func TestWindow(t *testing.T) {
 		t.Error("20h05")
 	}
 }
+
+// Linhas exatas do print de 13/10/2026 (claim MissClick Bot Test): tempo com espaços
+// dentro dos colchetes e o estado "Aceitar".
+const samplePrint1310 = `A2 - [ 00:50 ] Cobra Subsolo (Tier 1): Caipyranho
+C1 - [ 01:55 ] Livraria de Fire (Tier 3): Lord Tenchi | Next: Real Calvon [ Fim em ~03:55 ]
+D8 - [ 01:22 ] DT -2 (Tier 1): Jamaica Tank | Next: Projekkt [ Fim em ~02:17 ]
+R1 - [ 00:26 ] West (Tier 1): Rhoten | Next: Apoloooo [ Fim em ~02:26 ] | Next: Megazord
+R9 - [ Aceitar 00:03 ] Upper Roshamuul (Tier 1): Next: Alxoff — aguardando aceitação
+Y11 - [ 01:21 ] Norcferatu Catacombs Direita (Tier 1): Maarpz`
+
+func TestPrint1310(t *testing.T) {
+	cases := []struct {
+		code       string
+		count, rem int
+		first, who string
+	}{
+		{"A2", 0, 50, "", "Caipyranho"},
+		{"C1", 1, 115, "Real Calvon", "Lord Tenchi"},
+		{"D8", 1, 82, "Projekkt", "Jamaica Tank"},
+		{"R1", 2, 26, "Apoloooo", "Rhoten"},
+		{"Y11", 0, 81, "", "Maarpz"},
+	}
+	for _, c := range cases {
+		st := ParseQueue(samplePrint1310, c.code)
+		if !st.Valid || st.Accepting || st.Count != c.count || st.First != c.first || !st.HasTimer || st.Remaining != c.rem || Hunter(st) != c.who {
+			t.Errorf("%s: %+v", c.code, st)
+		}
+	}
+	// O tempo não pode ficar grudado em quem caça: senão, a cada minuto parece que entrou alguém.
+	a := ParseQueue("C1 - [ 02:28 ] Livraria de Fire (Tier 3): Lord Tenchi", "C1")
+	b := ParseQueue("C1 - [ 02:27 ] Livraria de Fire (Tier 3): Lord Tenchi", "C1")
+	if huntKey(a) != huntKey(b) || !a.HasTimer || a.Remaining != 148 {
+		t.Errorf("tempo grudado no nome: %q / %q", huntKey(a), huntKey(b))
+	}
+	// Aceitar: ninguém caçando, Alxoff (sem o "— aguardando aceitação") está aceitando.
+	st := ParseQueue(samplePrint1310, "R9")
+	if !st.Valid || !st.Accepting || st.HasTimer || st.Count != 1 || st.First != "Alxoff" || Hunter(st) != "" || huntKey(st) != "" || st.AcceptText != "Aceitar 00:03" {
+		t.Errorf("R9 aceitar: %+v", st)
+	}
+	if s := Summarize(st, 1); s != "Agora: ninguém caçando; Alxoff está aceitando o respawn (Aceitar 00:03)." {
+		t.Errorf("resumo: %q", s)
+	}
+	// Outras variações de espaço e palavra desconhecida (nunca vale como tempo).
+	if st := ParseQueue("C1 - [1:05] X: Fulano", "C1"); !st.HasTimer || st.Remaining != 65 {
+		t.Errorf("sem zero: %+v", st)
+	}
+	if st := ParseQueue("C1 - [  01 : 05  ] X: Fulano", "C1"); !st.HasTimer || st.Remaining != 65 || Hunter(st) != "Fulano" {
+		t.Errorf("muitos espaços: %+v", st)
+	}
+	for _, d := range []string{
+		"C1 - [ Pausa 00:10 ] X (Tier 1): Fulano",
+		"C1 - [ Aceitar 00:03 ] X (Tier 1): Fulano", // "Aceitar" sem ninguém na fila: estranho, não confia
+	} {
+		if st := ParseQueue(d, "C1"); st.Valid {
+			t.Errorf("deveria ser inválida: %q -> %+v", d, st)
+		}
+	}
+}

@@ -37,12 +37,18 @@ OUTRAS = ["a1 - [00:22] Cobra Castelo (Tier 1): Jairo Slayer | Next: Lord Tenchi
           "c10 - [00:10] Teste: Fulano"]
 
 
-def L(code="c1", t="01:30", who="Kira Zinha", nxt=(), resp="Livraria de Fire (Tier 3)", tag=True):
-    """Monta uma linha no formato novo do x3tBot. nxt = nomes no next."""
-    ln = f"{code} - [{t}] {resp}: [color=blue]{who}[/color]"
+def L(code="c1", t="01:30", who="Kira Zinha", nxt=(), resp="Livraria de Fire (Tier 3)", tag=True, sp=False):
+    """Monta uma linha no formato novo do x3tBot. nxt = nomes no next. sp = tempo com espaços: "[ 01:30 ]" (13/10)."""
+    b = (lambda x: f"[ {x} ]") if sp else (lambda x: f"[{x}]")
+    ln = f"{code} - {b(t)} {resp}: [color=blue]{who}[/color]"
     for i, n in enumerate(nxt):
-        ln += f" | Next: [color=blue]{n}[/color]" + (f" [Espera ~{t}]" if tag else "")
+        ln += f" | Next: [color=blue]{n}[/color]" + (" " + b(f"Fim em ~{t}") if tag else "")
     return ln
+
+
+def ACEITAR(code="C1", who="Lord Calvon", resp="Livraria de Fire (Tier 3)"):
+    """Quem caçava saiu e o 1º da fila está aceitando o respawn (13/10)."""
+    return f"{code} - [ Aceitar 00:03 ] {resp}: Next: [color=blue]{who}[/color] — aguardando aceitação"
 
 
 class App:
@@ -150,7 +156,7 @@ RESULTS = []
 # Cenários que precisam da conexão automática desligada (o app só conecta quando pedido).
 AUTO = {"t25_reconectar_sem_colar_chave": "1h"}
 # Cenários com relógio simulado (hora do "Windows" para o app).
-CLOCK = {"t52": "18:30:00", "t40": "18:30:00", "t41": "18:30:00", "t42": "18:30:00", "t43": "22:30:57", "t44": "23:00:00",
+CLOCK = {"t65": "18:30:00", "t52": "18:30:00", "t40": "18:30:00", "t41": "18:30:00", "t42": "18:30:00", "t43": "22:30:57", "t44": "23:00:00",
          "t45": "23:50:00", "t46": "18:30:20", "t47": "18:30:00", "t16": "18:30:00", "t18": "18:30:00"}
 
 
@@ -1177,6 +1183,109 @@ def t64_next_some_um_instante_e_entra_na_hunt(app):
     assert "não desistiu" in app.mon()["status"], app.mon()["status"]
     time.sleep(2.5)
     assert not mock.sent, "mandou o !next para a hunt de quem estava no next"
+
+
+# ---------------------------------------------------------------- 1.4.1: formato de 13/10 ("[ 01:45 ]" e "Aceitar")
+
+@scenario
+def t65_tempo_com_espacos_e_janela_envia(app):
+    # O bug de 13/10: "[ 01:45 ]" com espaços não era lido e, com a janela ligada, nunca enviava.
+    connected(app)
+    mock.set_desc(desc(*OUTRAS))
+    st, r = app.start("C1", win=("20:00", "22:30"))
+    assert st == 200, r
+    time.sleep(1)
+    mock.set_desc(desc(L("C1", "01:45", "Lord Tenchi", sp=True), *OUTRAS))
+    assert wait(lambda: mock.sent, 5), logs(app)
+    assert mock.sent[0][2] == "!next C1"
+    lg = " ".join(logs(app))
+    assert "Agora 18:30 + falta 01:45 = sua hunt começaria às 20:15 → dentro da janela" in lg, lg
+    assert "não consegui ler o tempo" not in lg, lg
+
+
+@scenario
+def t66_tempo_com_espacos_nao_parece_entrada_a_cada_minuto(app):
+    # O tempo mudando ([ 02:28 ] → [ 02:27 ]) não pode parecer que alguém entrou de novo.
+    connected(app)
+    mock.set_desc(desc(L("C1", "02:28", "Lord Tenchi", sp=True), *OUTRAS))
+    app.start("C1")
+    time.sleep(1.5)
+    for t in ("02:27", "02:26", "02:25"):
+        mock.set_desc(desc(L("C1", t, "Lord Tenchi", sp=True), *OUTRAS))
+        time.sleep(1.2)
+    assert not mock.sent, "pegou o next de quem já estava na hunt (o tempo mudou e pareceu entrada)"
+    assert not any("entrou" in x for x in logs(app)), logs(app)
+    assert app.mon()["endsAt"], app.mon()  # leu o tempo (mostra a hora que sai)
+
+
+@scenario
+def t67_aceitar_nao_e_entrada_nem_falha(app):
+    # Kira caçando com Lord Calvon no next (já estava assim). Kira sai: Lord Calvon "Aceitar".
+    # Isso não é entrada nem falha. Quando ele aceita e aparece caçando sem next: pega.
+    connected(app)
+    mock.set_desc(desc(L("C1", "00:05", "Kira Zinha", nxt=["Lord Calvon"], sp=True), *OUTRAS))
+    app.start("C1", "D7")
+    time.sleep(1.5)
+    mock.set_desc(desc(ACEITAR(), *OUTRAS))
+    time.sleep(2.5)
+    m = app.mon()
+    assert m["running"] and m["plan"] == "A" and not mock.sent, m
+    assert "aceitando o respawn" in m["status"], m["status"]
+    mock.set_desc(desc(L("C1", "02:00", "Lord Calvon", sp=True), *OUTRAS))
+    assert wait(lambda: mock.sent, 5), logs(app)
+    assert mock.sent[0][2] == "!next C1"
+    assert any("Lord Calvon entrou em C1" in x for x in logs(app)), logs(app)
+
+
+@scenario
+def t68_aceitar_com_espera_desistir(app):
+    # Esperando o next desistir: ele vai para "Aceitar" (continua esperando) e depois aceita: falhou.
+    connected(app)
+    mock.set_desc(desc(*OUTRAS))
+    app.start("C1", wait=True)
+    time.sleep(1)
+    mock.set_desc(desc(L("C1", "00:10", "Kira Zinha", nxt=["Lord Calvon"], sp=True), *OUTRAS))
+    assert wait(lambda: app.mon()["waitingFor"] == "Lord Calvon", 3), app.mon()
+    mock.set_desc(desc(ACEITAR(), *OUTRAS))
+    time.sleep(2)
+    m = app.mon()
+    assert m["running"] and m["waitingFor"] == "Lord Calvon" and "aceitando" in m["status"], m
+    mock.set_desc(desc(L("C1", "02:00", "Lord Calvon", sp=True), *OUTRAS))
+    assert wait(lambda: app.mon()["phase"] == "failed", 3), app.mon()
+    assert "não desistiu" in app.mon()["status"], app.mon()["status"]
+    time.sleep(2)
+    assert not mock.sent
+
+
+@scenario
+def t69_palavra_desconhecida_no_tempo_nao_envia(app):
+    connected(app)
+    mock.set_desc(desc(*OUTRAS))
+    app.start("C1")
+    time.sleep(1)
+    mock.set_desc(desc("C1 - [ Pausa 00:10 ] Livraria de Fire (Tier 3): Fulano", *OUTRAS))
+    time.sleep(3)
+    assert not mock.sent, "enviou com uma linha que o app não entende"
+    avisos = [x for x in logs(app) if "Etiqueta de tempo desconhecida" in x]
+    assert len(avisos) == 1, logs(app)
+    mock.set_desc(desc(L("C1", "01:00", "Fulano", sp=True), *OUTRAS))  # a linha volta ao normal
+    assert wait(lambda: mock.sent, 5), logs(app)
+
+
+@scenario
+def t70_aceitar_durante_o_atraso_cancela(app):
+    connected(app)
+    mock.set_desc(desc(*OUTRAS))
+    app.start("C1")
+    time.sleep(1)
+    mock.set_desc(desc(L("C1", "01:00", "Kira Zinha", sp=True), *OUTRAS))
+    assert wait(lambda: app.mon()["phase"] == "pending", 2)
+    mock.set_desc(desc(ACEITAR(who="Outro Cara"), *OUTRAS))
+    time.sleep(2.5)
+    assert not mock.sent and app.mon()["running"], app.mon()
+    assert any("Envio cancelado" in x and "aceitando" in x for x in logs(app)), logs(app)
+    mock.set_desc(desc(L("C1", "02:00", "Outro Cara", sp=True), *OUTRAS))
+    assert wait(lambda: mock.sent, 5)
 
 
 # ---------------------------------------------------------------- 1.4: gravação
