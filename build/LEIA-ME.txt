@@ -1,0 +1,172 @@
+NEXT TS 1.3.0 - COMO USAR
+==========================
+
+NOVIDADES DA 1.3.0
+------------------
+- Só 1º next. A opção de 2º next e a opção "pegar logo" saíram.
+- O app só pega quando ALGUÉM ENTRA na hunt depois que você clica em
+  Iniciar. Quem já estava lá antes ele não pega (esse você pega na mão).
+- Janela de início (opcional): marque "Monitorar janela de início" e
+  escreva o horário, ex.: das 20:00 às 22:30. Quando alguém entra na hunt,
+  o app faz a conta: hora atual + tempo que falta. Exemplo: 18:30 + [01:45]
+  = sua hunt começaria às 20:15, dentro da janela, então ele pega.
+  Fora da janela ele não pega. Passou do fim da janela, ele para sozinho.
+  As pontas contam: 20:00 e 22:30 pegam, 22:31 não.
+  Também funciona passando da meia-noite (ex.: 23:00 às 01:00).
+- Plano B (opcional): um segundo respawn. Se o Plano A falhar (alguém
+  pegou o next antes de você, ou o horário caiu fora da janela), o app
+  passa para o Plano B e não volta mais para o A. Se o B também falhar,
+  ele para. Nunca pega dois nexts.
+- Atraso aleatório agora é de 1 a 2 segundos.
+- Lê o formato novo da lista do x3tBot (cada pessoa num "| Next:", com
+  [Espera ~...] ou [Fim em ~...]) e continua lendo o formato antigo (+1).
+- Mostra o relógio do PC que o app está usando e a conta feita.
+
+O RELÓGIO
+O app usa o relógio do Windows (o do canto da barra de tarefas). Para ele
+estar certo: Configurações > Hora e idioma > Data e hora > ligue "Definir
+horário automaticamente" e confira o fuso de Brasília.
+O x3tBot mostra o tempo em minutos, então a conta pode ter 1 minuto de
+diferença da real.
+
+NOVIDADES DA 1.2.1
+------------------
+- Correção: se você clicasse em Parar bem no instante em que o comando
+  estava saindo, o app dizia "nada foi enviado" mesmo com o comando
+  entregue. Agora ele mostra o resultado certo.
+- Correção: o envio sempre confere a aba certa do TeamSpeak antes.
+- Quando o monitoramento termina, a janela rola sozinha até a Situação,
+  para você ver o resultado.
+- Visual: muralha com ameias, luz da tocha na parede, chão com grama e
+  pedrinhas, rebites dourados nas molduras, listas com seta dourada e
+  barras de rolagem no tema. Em janela estreita o guerreiro diminui para
+  não cobrir o título.
+
+NOVIDADES DA 1.2.0
+------------------
+- Atalhos de claim: botões em "Onde olhar" que trocam, com um clique,
+  o canal da lista e quem recebe o comando. O app já cria sozinho o do
+  x3tBot (canal Claimeds) e o do MissClick Bot Test (canal de claim dele).
+  Você também pode salvar os seus em "Salvar como atalho".
+- O canal e o bot que você escolher ficam lembrados para a próxima vez.
+- Conecta sozinho: se o app abrir antes do TeamSpeak, ou se o TS fechar,
+  ele fica "Esperando o TS" e conecta assim que o TS estiver no servidor.
+- Avisos de erro agora ficam na tela por alguns segundos (antes sumiam
+  rápido demais para ler).
+- Visual: tocha na parede, céu estrelado à noite e o guerreiro falando
+  e se mexendo conforme a situação.
+
+NOVIDADES DA 1.1.0
+------------------
+- Visual novo no estilo RPG medieval, com um guerreiro de armadura de
+  ferro no topo: ele chora enquanto espera e comemora quando o next sai.
+- A contagem da fila segue a regra da lista do x3tBot: o "+1" soma uma
+  pessoa; a "/" junta nomes da mesma vaga e não soma.
+
+O QUE ELE FAZ
+O Next TS fica de olho na lista do canal Claimeds (a lista do x3tBot) e,
+quando o respawn escolhido chega na situação certa, manda "!next C1" (ou o
+código que você escolher) no privado do x3tBot. Envia UMA ÚNICA VEZ e para.
+
+Ele usa o próprio TeamSpeak para ler a lista e mandar a mensagem. Não mexe no
+teclado nem no mouse, não mexe no Tibia, e o TS pode ficar minimizado.
+
+
+PRIMEIRA VEZ (só uma vez)
+-------------------------
+1. Extraia o ZIP: botão direito no arquivo > "Extrair tudo...".
+   Pode deixar a pasta onde quiser (Área de Trabalho, por exemplo).
+
+2. Abra o TeamSpeak 3 e entre no servidor da guild.
+
+3. No TeamSpeak, pegue a chave (API Key):
+   - Menu Ferramentas > Opções.
+   - Clique em "Addons".
+   - Ache "ClientQuery" na lista de plugins. Ele precisa estar ATIVADO.
+   - Clique em "Configurações" (Settings) do ClientQuery.
+   - Copie a "API Key" (aquela sequência de letras e números).
+
+4. Dê dois cliques em "Next TS.exe".
+   Se aparecer "O Windows protegeu o computador": clique em
+   "Mais informações" e depois em "Executar assim mesmo".
+   (Isso aparece porque o app é novo e não tem assinatura digital paga.)
+
+5. Na janelinha que abrir: cole a API Key, deixe marcado
+   "Lembrar a chave neste PC" e clique em Conectar.
+   Nas próximas vezes ele conecta sozinho.
+
+
+PRIMEIRO TESTE (faça antes de usar de verdade)
+----------------------------------------------
+1. Em "Onde olhar", confira:
+   - Canal da lista de claimeds: Claimeds
+     Embaixo deve aparecer em VERDE: "Lista encontrada: ... respawns".
+     Se aparecer em vermelho "Este canal está sem a lista", o canal está
+     errado (por exemplo "Claimed TEST"): troque para Claimeds.
+   - Quem recebe o comando: x3tBot Kalibra
+2. Em "Plano A", escolha um respawn. Logo abaixo aparece o que o app
+   está vendo, por exemplo:
+   "Agora: Lord Tenchi no respawn (falta 01:45, sai às 20:15), ninguém
+   no next." Confira se bate com o TeamSpeak.
+3. Marque "Modo teste" e clique em "Iniciar teste".
+4. Quando alguém novo entrar nesse respawn, deve aparecer:
+   "Teste concluído: eu teria enviado ..."   (nada é enviado de verdade)
+5. Confira na "Situação" se a linha e a conta do horário batem.
+
+Se algo não bater, tire um print da janelinha e me mande.
+
+
+USO NORMAL
+----------
+1. TeamSpeak aberto e no servidor. Clique UMA VEZ no canal da lista
+   (Claimeds, ou o de claim do MissClick Bot Test) e deixe ele
+   selecionado (assim a lista vai atualizando).
+   Em "Onde olhar", clique no atalho do claim que vocês estão usando
+   (x3tBot ou MissClick Bot Test).
+2. Abra o Next TS.
+3. Escolha o Plano A (ex.: C1 - Livraria de Fire), o Plano B se quiser,
+   ligue a janela de início se quiser, e clique em Iniciar.
+   (Se o respawn não estiver na lista, escolha "Outro código" no final
+   e digite o código.)
+4. Pode minimizar a janelinha e jogar. NÃO feche a janelinha:
+   fechar encerra o app.
+5. Quando enviar, aparece "Enviado" e, no Histórico, a resposta do
+   x3tBot. Para pegar outro next, clique em Iniciar de novo.
+
+
+AS REGRAS DO APP
+----------------
+- Lê a lista a cada 0,5 segundo.
+- Só 1º next, e só quando alguém ENTRA na hunt depois que você inicia.
+- Respawn livre (o código não aparece na lista): NUNCA envia nada.
+- Alguém entrou e já tem gente no next: o plano falhou.
+- Com a janela ligada: hora atual + tempo que falta tem que cair dentro
+  da janela. Se cair fora, o plano falhou. Se a linha não mostrar o tempo,
+  ele não envia (não tem como conferir).
+- Plano A falhou: vai para o B (se tiver) e não volta. B falhou: para.
+- Quando dá certo, espera um tempo sorteado entre 1 e 2 segundos, confere
+  a lista de novo e só então envia. Se alguém pegar o next nesse meio
+  tempo, o plano falhou. Se o respawn ficar livre, ele continua esperando.
+- Envia UMA vez e para.
+- "Parar" cancela tudo, inclusive um envio que estava para sair.
+- Se o TeamSpeak cair ou desconectar do servidor, ele não envia nada e
+  volta sozinho quando o TS voltar.
+
+
+SE DER PROBLEMA
+---------------
+- "Não consegui falar com o TeamSpeak": o TS está fechado ou o plugin
+  ClientQuery está desativado (veja o passo 3 da primeira vez).
+- "O TeamSpeak recusou a API Key": copie a chave de novo e cole.
+- "A lista está vazia": clique no canal Claimeds no TeamSpeak.
+- Aviso em amarelo "A lista mudou pela última vez há ... min" com o
+  x3tBot funcionando: clique no Claimeds de novo no TS e me avise.
+- O antivírus bloqueou: alguns antivírus desconfiam de programas novos
+  sem assinatura. Se acontecer, me avise.
+
+Os arquivos do app ficam em:  %LOCALAPPDATA%\NextTS
+Lá tem o "registro.txt" com o que o app fez. Ele NÃO contém sua chave.
+Se precisar de ajuda, mande esse arquivo.
+
+A pasta "codigo-fonte" não é necessária para usar o app. Ela serve para
+quem for fazer ajustes no futuro.

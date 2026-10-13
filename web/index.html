@@ -1,0 +1,897 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Next TS</title>
+<link rel="icon" type="image/png" href="/icone.png">
+<style>
+/* Tema "Tibia": pedra escura, molduras com relevo e dourado envelhecido.
+   Tudo desenhado aqui (CSS e pixel art próprios); nenhuma arte do jogo. */
+:root {
+  --stone: #23201c; --stone2: #2c2823; --stone3: #36312a; --ink: #0d0c0a;
+  --hi: #5c5446; --lo: #0b0a08;
+  --text: #ddd5c6; --muted: #a39a89; --gold: #d8b25a; --gold2: #f3d58a; --gold3: #8a6a2a;
+  --green: #4fb34a; --red: #d9493f; --amber: #f0b33c; --blue: #7ab8ff;
+  --parch: #e9d9b0; --parch2: #d9c38f; --parchInk: #3b2a16;
+}
+* { box-sizing: border-box; }
+html { background: #15130f; }
+body {
+  margin: 0; padding: 0 12px 20px; color: var(--text);
+  font: 13px/1.45 Verdana, Tahoma, "Segoe UI", sans-serif;
+  background-color: #1a1713;
+  background-image:
+    radial-gradient(ellipse at 50% -10%, rgba(216,178,90,.10), transparent 60%),
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .5 0 0 0 0 .45 0 0 0 0 .38 0 0 0 .09 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+/* ---------- Faixa do topo com o boneco ---------- */
+.banner {
+  position: relative; height: 178px; margin: 0 -12px 12px; overflow: hidden;
+  border-bottom: 3px solid var(--gold3);
+  background:
+    linear-gradient(180deg, #2a3a4a 0%, #3c3a3a 55%, #2b241b 56%, #241d15 100%);
+  box-shadow: inset 0 -1px 0 var(--gold2), 0 3px 8px rgba(0,0,0,.5);
+}
+.banner::before { /* muro de pedra ao fundo */
+  content: ""; position: absolute; inset: 52px 0 77px 0; opacity: .55;
+  background:
+    repeating-linear-gradient(90deg, transparent 0 46px, rgba(0,0,0,.45) 46px 48px),
+    repeating-linear-gradient(0deg, #4a4540 0 22px, rgba(0,0,0,.45) 22px 24px);
+}
+.banner::after { /* chão de terra */
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 78px;
+  background: repeating-linear-gradient(90deg, #3a2e20 0 8px, #332819 8px 16px);
+  border-top: 2px solid #4d3d29;
+}
+#hero { position: absolute; right: 8px; bottom: 4px; z-index: 2; image-rendering: pixelated; }
+.title { position: absolute; left: 16px; top: 16px; z-index: 3; }
+#titlePx { display: block; image-rendering: pixelated; filter: drop-shadow(2px 2px 0 #000); }
+.subtitle { color: var(--gold2); font-size: 11.5px; margin-top: 6px; text-shadow: 1px 1px 0 #000; letter-spacing: .3px; }
+.pill {
+  position: absolute; left: 16px; top: 98px; z-index: 3;
+  font-size: 11.5px; font-weight: bold; padding: 3px 10px; border-radius: 3px;
+  background: var(--stone); color: var(--muted);
+  border: 1px solid var(--lo); box-shadow: inset 1px 1px 0 var(--hi), 1px 1px 0 #000;
+  text-shadow: 1px 1px 0 #000;
+}
+.pill.on { color: #7be36f; } .pill.off { color: #ff7a6e; }
+.speech {
+  position: absolute; right: 190px; top: 96px; z-index: 3; max-width: 150px;
+  background: var(--parch); color: var(--parchInk); font-size: 11px; font-weight: bold;
+  padding: 5px 8px; border: 2px solid #1a120c; border-radius: 2px; box-shadow: 2px 2px 0 rgba(0,0,0,.6);
+}
+.speech::after { content: ""; position: absolute; right: -9px; top: 12px; border: 5px solid transparent; border-left-color: #1a120c; }
+/* ---------- Molduras (cartões) ---------- */
+.card {
+  position: relative; margin-bottom: 12px; padding: 12px 13px 13px;
+  background: linear-gradient(180deg, var(--stone2), var(--stone));
+  border: 1px solid var(--lo);
+  box-shadow: inset 1px 1px 0 var(--hi), inset -1px -1px 0 #14120f, 0 0 0 2px #3d3426, 0 0 0 3px #0a0907, 0 4px 10px rgba(0,0,0,.45);
+}
+.card h2 {
+  display: flex; align-items: center; gap: 8px; margin: -12px -13px 10px; padding: 6px 12px;
+  font: bold 12px Verdana, Tahoma, sans-serif; letter-spacing: 1px; text-transform: uppercase;
+  color: var(--gold2); text-shadow: 1px 1px 0 #000;
+  background: linear-gradient(180deg, #3b342a, #2a251e);
+  border-bottom: 1px solid #000; box-shadow: inset 0 1px 0 #6a5e4b, 0 1px 0 #4a4234;
+}
+.card h2 canvas { image-rendering: pixelated; flex: 0 0 auto; }
+.card.disabled { opacity: .45; pointer-events: none; filter: grayscale(.4); }
+label.f { display: block; font-size: 11.5px; color: var(--muted); margin: 9px 0 4px; }
+input[type=text], input[type=password], input[type=number], select {
+  width: 100%; background: #12100d; color: var(--text); font: 13px Verdana, Tahoma, sans-serif;
+  border: 1px solid #000; border-radius: 0; padding: 7px 9px; outline: none;
+  box-shadow: inset 1px 1px 0 #000, inset -1px -1px 0 #3a342b;
+}
+input:focus, select:focus { box-shadow: inset 1px 1px 0 #000, 0 0 0 1px var(--gold); }
+input:disabled, select:disabled { opacity: .6; }
+optgroup { color: var(--gold2); background: #12100d; font-style: normal; }
+option { color: var(--text); background: #12100d; }
+.row { display: flex; gap: 8px; align-items: center; }
+.row > * { flex: 1; }
+.row > .shrink { flex: 0 0 auto; }
+/* Botões de pedra com relevo */
+button {
+  font: bold 12.5px Verdana, Tahoma, sans-serif; cursor: pointer; color: var(--text);
+  padding: 7px 12px; border-radius: 0; border: 1px solid #000;
+  background: linear-gradient(180deg, #4a4339, #322d26);
+  box-shadow: inset 1px 1px 0 #7a6f5d, inset -1px -1px 0 #1c1915; text-shadow: 1px 1px 0 #000;
+}
+button:hover:not(:disabled) { filter: brightness(1.15); }
+button:active:not(:disabled) { box-shadow: inset -1px -1px 0 #7a6f5d, inset 1px 1px 0 #1c1915; transform: translateY(1px); }
+button:disabled { opacity: .5; cursor: default; }
+button.primary { background: linear-gradient(180deg, #b48a35, #7a5a1e); color: #fff3cf; box-shadow: inset 1px 1px 0 #f0d184, inset -1px -1px 0 #4a3510; }
+.link { background: none; border: none; box-shadow: none; color: var(--blue); padding: 0; font-size: 11.5px; font-weight: normal; text-decoration: underline; text-shadow: none; }
+.check { display: flex; gap: 8px; align-items: flex-start; margin-top: 10px; cursor: pointer; font-size: 12.5px; }
+.check input { margin-top: 2px; accent-color: var(--gold); width: 15px; height: 15px; flex: 0 0 auto; }
+.check small { display: block; color: var(--muted); font-size: 11.5px; }
+.seg { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
+.seg button { padding: 9px 8px; text-align: left; font-weight: normal; }
+.seg button b { display: block; font-size: 14px; }
+.seg button span { display: block; font-size: 11px; color: var(--muted); line-height: 1.3; margin-top: 2px; text-shadow: none; }
+.seg button.sel { background: linear-gradient(180deg, #5e4a22, #3e3015); box-shadow: inset 1px 1px 0 #d8b25a, inset -1px -1px 0 #241a08, 0 0 0 1px var(--gold); }
+.seg button.sel b { color: var(--gold2); }
+.hint { font-size: 11.5px; color: var(--muted); margin-top: 5px; }
+.hint.err { color: #ff8a7e; } .hint.good { color: #8be07f; }
+.live { margin-top: 6px; padding: 7px 9px; background: #12100d; border: 1px solid #000; box-shadow: inset 1px 1px 0 #000; font-size: 12px; color: var(--muted); }
+.live.on { color: var(--text); } .live.yes { color: #8be07f; } .live.blank { display: none; }
+.preview { margin-top: 12px; padding: 8px 10px; background: rgba(0,0,0,.25); border: 1px dashed #5a4f3d; font-size: 12px; }
+.preview code { color: var(--gold2); font: bold 12.5px Consolas, "Courier New", monospace; }
+/* Botão grande */
+#go { width: 100%; padding: 13px; font-size: 16px; letter-spacing: 1px; margin: 2px 0 12px; text-transform: uppercase; }
+#go.start { background: linear-gradient(180deg, #4f9a3e, #2c6522); color: #effbe6; box-shadow: inset 1px 1px 0 #9be07f, inset -1px -1px 0 #163a10, 0 0 0 2px #0a0907; }
+#go.stop { background: linear-gradient(180deg, #b23a30, #74201a); color: #ffe9e5; box-shadow: inset 1px 1px 0 #ff9c8f, inset -1px -1px 0 #3d0d09, 0 0 0 2px #0a0907; }
+/* Situação = pergaminho */
+.status { background: linear-gradient(180deg, var(--parch), var(--parch2)); color: var(--parchInk); }
+.status h2 { color: #fff1c9; }
+.status.watching { box-shadow: inset 1px 1px 0 #fff4d6, 0 0 0 2px #3d3426, 0 0 0 3px #0a0907, 0 0 0 5px #3d6fa8; }
+.status.pending { box-shadow: inset 1px 1px 0 #fff4d6, 0 0 0 2px #3d3426, 0 0 0 3px #0a0907, 0 0 0 5px var(--amber); }
+.status.sent, .status.tested { box-shadow: inset 1px 1px 0 #fff4d6, 0 0 0 2px #3d3426, 0 0 0 3px #0a0907, 0 0 0 5px var(--green); }
+.status.error, .status.waitingts { box-shadow: inset 1px 1px 0 #fff4d6, 0 0 0 2px #3d3426, 0 0 0 3px #0a0907, 0 0 0 5px var(--red); }
+#stText { font-size: 14px; font-weight: bold; }
+#count { font: bold 28px Verdana, sans-serif; color: #9a2a10; margin: 4px 0; font-variant-numeric: tabular-nums; animation: pulse .6s ease-in-out infinite alternate; }
+@keyframes pulse { from { opacity: 1; } to { opacity: .55; } }
+.lineBox { margin-top: 8px; padding: 6px 8px; background: rgba(59,42,22,.1); border: 1px solid rgba(59,42,22,.35); font: 12px Consolas, "Courier New", monospace; color: var(--parchInk); word-break: break-word; }
+.lineBox.free { font-family: inherit; color: #6d5a3d; }
+.status .meta { font-size: 11.5px; color: #6d5a3d; margin-top: 6px; }
+.meta .warn { color: #a05a00; font-weight: bold; }
+.meta { font-size: 11.5px; color: var(--muted); margin-top: 6px; }
+/* Histórico = janela de mensagens do servidor */
+#log { max-height: 220px; overflow-y: auto; font: 11.5px Verdana, Tahoma, sans-serif; background: #0e0d0b; border: 1px solid #000; box-shadow: inset 1px 1px 0 #000; padding: 4px 6px; }
+#log div { padding: 2px 0; display: flex; gap: 7px; }
+#log time { color: #8f8572; flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+#log span { color: #e8e3d8; }
+#log .ok { color: #6fe36a; } #log .warn { color: #ffcf5a; } #log .err { color: #ff6b5e; } #log .bot { color: #ffe066; } #log .info { color: #c9e2ff; }
+details { margin-top: 8px; font-size: 11.5px; color: var(--muted); }
+details summary { cursor: pointer; color: var(--blue); }
+details ol { padding-left: 18px; margin: 6px 0; }
+details li { margin: 3px 0; }
+.err-box { margin-top: 8px; padding: 8px 10px; background: #3a1512; border: 1px solid #000; color: #ffb3aa; font-size: 12px; display: none; }
+footer { text-align: center; font-size: 11px; color: var(--muted); margin-top: 6px; }
+/* ---------- Refinos do cenário ---------- */
+.merlons { position: absolute; left: 0; right: 0; top: 40px; height: 13px; z-index: 0; opacity: .7;
+  background: repeating-linear-gradient(90deg, #4f4943 0 30px, transparent 30px 44px);
+  box-shadow: inset 0 2px 0 rgba(255,255,255,.06); }
+.torchlight { position: absolute; right: 150px; top: 6px; width: 110px; height: 110px; z-index: 0; pointer-events: none;
+  background: radial-gradient(circle, rgba(255,176,64,.28), rgba(255,140,40,.10) 45%, transparent 70%);
+  animation: glow 1.6s ease-in-out infinite alternate; }
+@keyframes glow { from { opacity: .75; } to { opacity: 1; } }
+.ground { position: absolute; left: 0; right: 0; bottom: 0; height: 78px; z-index: 1; pointer-events: none;
+  background:
+    repeating-linear-gradient(90deg, transparent 0 14px, #3f6b2e 14px 16px, transparent 16px 23px, #335a26 23px 24px, transparent 24px 37px) top / 100% 3px no-repeat,
+    radial-gradient(circle at 12% 40%, #5a4a36 0 2px, transparent 3px), radial-gradient(circle at 33% 70%, #4d3f2e 0 2px, transparent 3px),
+    radial-gradient(circle at 51% 30%, #5a4a36 0 1.5px, transparent 2.5px), radial-gradient(circle at 68% 62%, #4d3f2e 0 2px, transparent 3px),
+    radial-gradient(circle at 88% 45%, #5a4a36 0 1.5px, transparent 2.5px); }
+/* Rebites dourados nas barras de título */
+.card h2 {
+  background:
+    radial-gradient(circle at 6px 50%, #f3d58a 0 1.5px, #8a6a2a 2px, #1a120c 2.6px, transparent 3px),
+    radial-gradient(circle at calc(100% - 6px) 50%, #f3d58a 0 1.5px, #8a6a2a 2px, #1a120c 2.6px, transparent 3px),
+    linear-gradient(180deg, #3b342a, #2a251e);
+}
+.status h2 { background:
+    radial-gradient(circle at 6px 50%, #f3d58a 0 1.5px, #8a6a2a 2px, #1a120c 2.6px, transparent 3px),
+    radial-gradient(circle at calc(100% - 6px) 50%, #f3d58a 0 1.5px, #8a6a2a 2px, #1a120c 2.6px, transparent 3px),
+    linear-gradient(180deg, #5a4526, #3b2c17); }
+/* Pedrinha colorida na etiqueta de conexão */
+.pill::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 7px; vertical-align: 1px;
+  transform: rotate(45deg); background: #8f8572; box-shadow: 0 0 0 1px #000; }
+.pill.on::before { background: #6fe36a; box-shadow: 0 0 0 1px #000, 0 0 6px #6fe36a; }
+.pill.off::before { background: #ff7a6e; }
+/* Listas com seta dourada */
+select { appearance: none; -webkit-appearance: none; padding-right: 30px; cursor: pointer;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8'><path d='M0 0h12L6 8z' fill='%23d8b25a'/></svg>");
+  background-repeat: no-repeat; background-position: right 11px center; }
+select:disabled { cursor: default; }
+/* Barras de rolagem no tema */
+::-webkit-scrollbar { width: 12px; height: 12px; }
+::-webkit-scrollbar-track { background: #14120f; border-left: 1px solid #000; }
+::-webkit-scrollbar-thumb { background: linear-gradient(90deg, #5a4f3d, #3d3426); border: 1px solid #000; box-shadow: inset 1px 1px 0 #8a7a5a; }
+::-webkit-scrollbar-thumb:hover { background: linear-gradient(90deg, #6e604a, #4a3f2f); }
+#log div:nth-child(odd) { background: rgba(255,255,255,.025); }
+/* Aviso que fica na tela (erros de uma ação) */
+.notice { position: fixed; left: 12px; right: 12px; bottom: 12px; z-index: 50; display: flex; gap: 10px; align-items: flex-start;
+  padding: 9px 11px; background: linear-gradient(180deg, #4a1a15, #321210); color: #ffd9d3; font-size: 12.5px;
+  border: 1px solid #000; box-shadow: inset 1px 1px 0 #8a3a30, 0 0 0 2px #5a1a14, 0 6px 16px rgba(0,0,0,.6); cursor: pointer; }
+.notice b { color: #fff; }
+.notice span.close { margin-left: auto; color: #ffb3aa; font-weight: bold; }
+/* Atalhos de claim */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+.chip { position: relative; display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px 6px 11px; font-size: 12px; }
+.chip.sel { background: linear-gradient(180deg, #5e4a22, #3e3015); box-shadow: inset 1px 1px 0 #d8b25a, inset -1px -1px 0 #241a08, 0 0 0 1px var(--gold); color: var(--gold2); }
+.chip.off { opacity: .55; }
+.chip .x { font-weight: normal; color: var(--muted); padding: 0 2px; margin-left: 2px; }
+.chip .x:hover { color: #ff8a7e; }
+.chip .dot { width: 7px; height: 7px; border-radius: 50%; background: #6fe36a; box-shadow: 0 0 0 1px #000; }
+.chip.off .dot { background: #8f8572; }
+.wait-hint { margin-top: 8px; padding: 7px 9px; font-size: 12px; color: var(--gold2); background: rgba(0,0,0,.25); border: 1px dashed #5a4f3d; }
+/* Tocha, céu e animações do guerreiro */
+#torch { position: absolute; right: 196px; top: 30px; z-index: 1; image-rendering: pixelated; filter: drop-shadow(0 0 8px rgba(255,170,60,.55)); }
+.sky { position: absolute; inset: 0 0 auto 0; height: 52px; z-index: 0; opacity: 0; transition: opacity 1s; }
+.banner.night { background: linear-gradient(180deg, #0a1222 0%, #1b2030 55%, #2b241b 56%, #241d15 100%); }
+.banner.night .sky { opacity: 1;
+  background:
+    radial-gradient(2px 2px at 6% 30%, #fff 50%, transparent 51%), radial-gradient(1.5px 1.5px at 18% 12%, #dfe8ff 50%, transparent 51%),
+    radial-gradient(2px 2px at 31% 44%, #fff 50%, transparent 51%), radial-gradient(1.5px 1.5px at 44% 16%, #fff 50%, transparent 51%),
+    radial-gradient(2px 2px at 57% 36%, #cfe0ff 50%, transparent 51%), radial-gradient(1.5px 1.5px at 66% 8%, #fff 50%, transparent 51%),
+    radial-gradient(2px 2px at 79% 26%, #fff 50%, transparent 51%), radial-gradient(1.5px 1.5px at 92% 12%, #dfe8ff 50%, transparent 51%),
+    radial-gradient(1.5px 1.5px at 98% 40%, #fff 50%, transparent 51%), radial-gradient(1.5px 1.5px at 38% 4%, #fff 50%, transparent 51%); }
+#hero.sob { animation: sob .9s steps(1) infinite; }
+#hero.tense { animation: tense .18s steps(1) infinite; }
+#hero.cheer { animation: cheer .7s ease-in-out infinite; }
+@keyframes sob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(2px); } }
+@keyframes tense { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(2px); } }
+@keyframes cheer { 0%, 100% { transform: translateY(0); } 40% { transform: translateY(-8px); } }
+@media (prefers-reduced-motion: reduce) { #hero.sob, #hero.tense, #hero.cheer, #count, .torchlight { animation: none; } }
+@media (max-width: 470px) { #torch, .torchlight { display: none; } #hero { width: 132px; } .speech { right: 140px; top: 108px; max-width: 120px; } }
+/* Planos A e B */
+.plan { display: flex; gap: 10px; align-items: flex-start; margin-top: 4px; }
+.plan + .plan { margin-top: 10px; padding-top: 4px; border-top: 1px dashed #4a4234; }
+.planTag { flex: 0 0 26px; height: 26px; margin-top: 24px; display: grid; place-items: center; font: bold 14px Verdana, sans-serif;
+  color: #fff3cf; background: linear-gradient(180deg, #b48a35, #7a5a1e); border: 1px solid #000; box-shadow: inset 1px 1px 0 #f0d184, inset -1px -1px 0 #4a3510; text-shadow: 1px 1px 0 #000; }
+.planTag.b { background: linear-gradient(180deg, #6b7a86, #414c55); box-shadow: inset 1px 1px 0 #b9c6d0, inset -1px -1px 0 #20272c; }
+.planBody { flex: 1; min-width: 0; }
+.codeIn { margin-top: 6px; text-transform: uppercase; font-weight: 600; letter-spacing: .5px; }
+.winRow { display: flex; gap: 8px; align-items: center; margin: 6px 0 0 23px; font-size: 12.5px; }
+.winRow input { width: 76px; flex: 0 0 auto; padding: 6px 8px; text-align: center; font: bold 14px Consolas, "Courier New", monospace; color: var(--gold2); }
+.winRow.off { opacity: .45; }
+#winHint { margin-left: 23px; }
+.clock { margin-top: 10px; font-size: 12px; color: var(--muted); }
+.clock b { color: var(--gold2); font: bold 13px Consolas, "Courier New", monospace; }
+.rules { margin-top: 10px; font-size: 11.5px; color: var(--muted); padding: 6px 9px; border-left: 3px solid var(--gold3); background: rgba(0,0,0,.18); }
+.planline { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; }
+.planline span { font-size: 11.5px; font-weight: bold; padding: 2px 7px; border: 1px solid rgba(59,42,22,.45); color: #6d5a3d; background: rgba(59,42,22,.06); }
+.planline span.cur { color: #fff3cf; background: #7a5a1e; border-color: #3b2a16; }
+.planline span.gone { text-decoration: line-through; opacity: .6; }
+.calc { margin-top: 8px; padding: 6px 8px; font-size: 12px; font-weight: bold; color: #3b2a16; background: rgba(216,178,90,.25); border: 1px solid rgba(138,106,42,.6); }
+.status.failed, .status.ended, .status.stopped { box-shadow: inset 1px 1px 0 #fff4d6, 0 0 0 2px #3d3426, 0 0 0 3px #0a0907, 0 0 0 5px #8a7a5a; }
+.hidden { display: none !important; }
+</style>
+</head>
+<body>
+<header class="banner" id="banner">
+  <div class="sky"></div>
+  <div class="merlons"></div>
+  <div class="torchlight"></div>
+  <canvas id="torch" aria-hidden="true"></canvas>
+  <div class="ground"></div>
+  <div class="title">
+    <canvas id="titlePx" aria-label="Next TS"></canvas>
+    <div class="subtitle">o caçador de next</div>
+  </div>
+  <span id="pill" class="pill off">Desconectado</span>
+  <div class="speech" id="speech">Conecte o TeamSpeak!</div>
+  <canvas id="hero" aria-hidden="true"></canvas>
+</header>
+
+<!-- 1. Conexão -->
+<section class="card" id="cardConn">
+  <h2><canvas data-icon="key"></canvas>1 · TeamSpeak</h2>
+  <div id="connForm">
+    <div id="savedKeyRow" class="hidden">
+      <div class="hint" id="savedKeyText">Chave salva neste PC.</div>
+    </div>
+    <div id="keyRow">
+      <label class="f" for="key">API Key do ClientQuery</label>
+      <div class="row">
+        <input type="password" id="key" autocomplete="off" spellcheck="false" placeholder="Cole aqui a chave">
+        <button class="shrink" id="showKey" type="button" title="Mostrar/ocultar">👁</button>
+      </div>
+      <label class="check"><input type="checkbox" id="remember" checked>Lembrar a chave neste PC</label>
+    </div>
+    <div class="wait-hint hidden" id="autoHint">Esperando o TeamSpeak abrir e entrar no servidor. O app conecta sozinho, não precisa clicar.</div>
+    <div class="row" style="margin-top:10px">
+      <button class="primary" id="connect">Conectar</button>
+    </div>
+    <div class="row" style="margin-top:6px">
+      <button class="link shrink hidden" id="otherKey" type="button">Usar outra chave</button>
+    </div>
+    <details>
+      <summary>Onde acho a API Key?</summary>
+      <ol>
+        <li>Abra o TeamSpeak 3 e entre no servidor da guild.</li>
+        <li>Menu <b>Ferramentas → Opções</b>.</li>
+        <li>Clique em <b>Addons</b> e procure <b>ClientQuery</b> (aba Plugins). Ele precisa estar <b>ativado</b>.</li>
+        <li>Clique em <b>Configurações</b> do ClientQuery e copie a <b>API Key</b>.</li>
+        <li>Cole aqui e clique em Conectar.</li>
+      </ol>
+      Porta (não mexa se não souber): <input type="number" id="port" value="25639" min="1" max="65535" style="width:90px;padding:3px 6px">
+    </details>
+  </div>
+  <div id="connDone" class="hidden">
+    <div id="connWho"></div>
+    <div class="row" style="margin-top:6px; gap:14px">
+      <button class="link shrink" id="reconnect" type="button">Reconectar</button>
+      <button class="link shrink" id="forget" type="button">Apagar chave salva</button>
+    </div>
+  </div>
+  <div class="err-box" id="connErr"></div>
+</section>
+
+<!-- 2. Onde olhar -->
+<section class="card disabled" id="cardWhere">
+  <h2><canvas data-icon="scroll"></canvas>2 · Onde olhar</h2>
+  <div id="presetBox" class="hidden">
+    <label class="f">Atalhos de claim</label>
+    <div class="chips" id="chips"></div>
+    <div class="hint">Um clique troca o canal da lista e quem recebe o comando.</div>
+  </div>
+  <div id="serverWrap">
+    <label class="f" for="server">Servidor</label>
+    <select id="server"></select>
+  </div>
+  <label class="f" for="channel">Canal da lista de claimeds</label>
+  <select id="channel"></select>
+  <div class="hint" id="chanInfo">&nbsp;</div>
+  <label class="f" for="bot">Quem recebe o comando (ex.: x3tBot)</label>
+  <select id="bot"></select>
+  <div class="row" style="margin-top:8px; gap:14px"><button class="link shrink" id="refresh" type="button">Atualizar listas</button><button class="link shrink" id="savePreset" type="button">Salvar como atalho</button></div>
+  <div class="hint">Deixe o canal da lista <b>clicado</b> no TeamSpeak, para a lista ir atualizando.</div>
+</section>
+
+<!-- 3. O que pegar -->
+<section class="card disabled" id="cardWhat">
+  <h2><canvas data-icon="sword"></canvas>3 · O que pegar</h2>
+  <div class="plan">
+    <div class="planTag">A</div>
+    <div class="planBody">
+      <label class="f" for="codeSel">Plano A · respawn</label>
+      <select id="codeSel"></select>
+      <input type="text" id="code" class="hidden codeIn" maxlength="6" autocomplete="off" spellcheck="false" placeholder="Digite o código, ex.: C1">
+      <div class="hint" id="codeName">&nbsp;</div>
+      <div class="live" id="live">&nbsp;</div>
+    </div>
+  </div>
+  <div class="plan">
+    <div class="planTag b">B</div>
+    <div class="planBody">
+      <label class="f" for="codeSelB">Plano B · respawn (opcional)</label>
+      <select id="codeSelB"></select>
+      <input type="text" id="codeB" class="hidden codeIn" maxlength="6" autocomplete="off" spellcheck="false" placeholder="Digite o código, ex.: D7">
+      <div class="hint" id="codeNameB">&nbsp;</div>
+      <div class="live blank" id="liveB">&nbsp;</div>
+      <div class="hint">Só é usado se o Plano A falhar: pegaram o next antes ou o horário ficou fora da janela. Depois não volta para o A.</div>
+    </div>
+  </div>
+  <label class="check"><input type="checkbox" id="windowOn">
+    <span>Monitorar janela de início
+    <small>Só pega se a sua hunt for começar dentro deste horário (hora atual + tempo que falta).</small></span></label>
+  <div class="winRow" id="winRow">
+    <span>das</span><input type="text" id="winStart" value="20:00" maxlength="5" inputmode="numeric" autocomplete="off" placeholder="20:00"><span>às</span><input type="text" id="winEnd" value="22:30" maxlength="5" inputmode="numeric" autocomplete="off" placeholder="22:30">
+  </div>
+  <div class="hint" id="winHint">&nbsp;</div>
+  <div class="clock">Relógio do PC: <b id="clock">--:--:--</b></div>
+  <label class="check"><input type="checkbox" id="testMode">
+    <span>Modo teste
+    <small>Faz tudo, mas não envia nada. Bom para conferir na primeira vez.</small></span></label>
+  <div class="rules">Só <b>1º next</b>. O app só pega quando <b>alguém entra na hunt</b> depois que você clica em Iniciar; quem já estava lá antes ele não pega.</div>
+  <div class="preview" id="preview"></div>
+</section>
+
+<button id="go" class="start" disabled>Iniciar</button>
+
+<!-- Situação -->
+<section class="card status" id="cardStatus">
+  <h2><canvas data-icon="hourglass"></canvas>Situação</h2>
+  <div id="planline" class="planline hidden"></div>
+  <div id="summary" class="meta hidden" style="margin:0 0 6px"></div>
+  <div id="stText">Parado.</div>
+  <div id="count" class="hidden"></div>
+  <div id="lineBox" class="lineBox hidden"></div>
+  <div id="calc" class="calc hidden"></div>
+  <div class="meta" id="meta"></div>
+</section>
+
+<section class="card">
+  <h2><canvas data-icon="book"></canvas>Histórico</h2>
+  <div id="log"></div>
+</section>
+
+<div class="notice hidden" id="notice" role="alert"><span id="noticeText"></span><span class="close">×</span></div>
+
+<footer><span id="ver"></span> · <button class="link" id="quit" type="button">Fechar o app</button></footer>
+
+<script>
+"use strict";
+const T = new URLSearchParams(location.search).get("t") || "";
+const $ = (id) => document.getElementById(id);
+// ---------- Pixel art própria (boneco, título e ícones) ----------
+const PAL = {K:"#140f0b",H:"#7a5230",h:"#55371d",S:"#f0be92",s:"#c98d63",E:"#2a1a10",T:"#4fc3ff",t:"#c8f0ff",M:"#5a1616",m:"#d9534f",
+  R:"#8e2b2b",r:"#5e1a1a",C:"#3f7d3a",c:"#2a5727",B:"#6b4423",b:"#e2b33c",P:"#5b4a3b",p:"#41352a",O:"#3b2a1b",
+  W:"#d7dde2",w:"#8f9aa3",G:"#d9a43c",g:"#8a6420",I:"#aab4bd",i:"#6c7680",J:"#3e464d",j:"#7d868e",q:"#59626a",F:"#d8342b",f:"#8f1f19",Z:"#9a6531",z:"#6b4220",Y:"#f3d58a",y:"#b8892e",D:"#000000",L:"#e8e0cc",l:"#9c8f74",V:"#7ab8ff"};
+// Guerreiro de armadura de ferro (desenho próprio): chorando e comemorando.
+const HERO_CRY = ["..................KFFKF.....................", ".................KFFFFFF....................", ".................KfFFfKff...................", "...............KKKKffKKKf...................", ".............KKIIIIIIIIIIKK.................", "............KIIIIIIIIIIIIIIK................", "............KIiIIIIIIIIIIiIK................", "...........KIIiJJJJJJJJJJiIIK...............", ".........t.KIiJSSSSSSSSSSJiIK.t.............", "...........KTiJSEESSSSEESJiTK...............", "..........TKIiJSsTSSSSTsSJiIKT..............", "...........KIiJSSTSKKSTSSJiIK...............", "...........KIiJSSTKMMKTSSJiIK...............", "...........KIIiJJJJJJJJJJiIIK...KKKKK.......", "............KIiIIIIIIIIIIiIK..KKIIIIIKK.....", "..........KKIIIiIIIIIIIIiIIIKKKIZZzZZIKK....", ".........KIIIKJjqjqjjqjqjJKIIKIzZZzZZzIK....", ".........KIiIKjqjqjqqjqjqjKIKIZzZZKZZzZIK...", ".........KIiKqjqjqjqqjqjqjqKKIZzZKbKZzZIK...", ".........KSSKjqjqjqjjqjqjqjKKiZzKbbbKzZiK...", "..........KKKBBBBBBbbBBBBBBKKiZzZKbKZzZiK...", "............KjqjqjqKKqjqjqjKKiZzZZKZZzZiK...", "............KqjqjqjKKjqjqjqK.KizZZzZZziK....", ".............KIIIIK..KIIIIK..KKiZZzZZiKK....", ".............KIiIIK..KIIiIK...KKiiiiiKK.....", ".............KIiIIK..KIIiIK.....KKKKK.......", "............KOOOOOK..KOOOOOK................", "............KKKKKKK..KKKKKKK................", "...G........tTTtTTtTTtTTtTTt................", ".gGGKWWWWWWWWWWWWw..........................", "...G........................................", "............................................"];
+const HERO_HAPPY = [".......b..........KFFKF.....................", ".................KFFFFFF.................b..", "....W............KfFFfKff...................", "....Ww.........KKKKffKKKf........KKKKK.....b", "....Ww.......KKIIIIIIIIIIKK....KKIIIIIKK....", "....Ww......KIIIIIIIIIIIIIIK..KKIZZzZZIbK...", "....Ww......KIiIIIIIIIIIIiIK..KIzZZzZZzIK...", "....Ww.....KIIiJJJJJJJJJJiIIKKIZzZZKZZzZIK..", "....Ww.....KIiJSSESSSSESSJiIKKIZzZKbKZzZIK..", "....Ww.....KIiJSESESSESESJiIKKiZzKbbbKzZiK..", "....Ww.....KIiJSsSSSSSSsSJiIKKiZzZKbKZzZiK..", "....Ww.....KIiJSmMSSSSMmSJiIKKiZzZZKZZzZiK..", "....Ww.....KIiJSSSMMMMSSSJiIK.KizZZzZZziK...", "....Ww.....KIIiJJJJJJJJJJiIIK.KKiZZzZZiKK...", "....Ww......KIiIIIIIIIIIIiIK...IiiiiiiKK....", "....Ww....KKIIIiIIIIIIIIiIIIKK.IiKKKKK......", "....Ww...KIIIKJjqjqjjqjqjJKIIIKIi...........", "..GGGGGG.KIiIKjqjqjqqjqjqjKIiIK.............", "....gg...KIiKqjqjqjqqjqjqjqKiIK.............", "....SSS..KSSKjqjqjqjjqjqjqjKSSK.............", "..........KKKBBBBBBbbBBBBBBKKK..............", "............KjqjqjqKKqjqjqjK................", "............KqjqjqjKKjqjqjqK................", ".............KIIIIK..KIIIIK.................", ".............KIiIIK..KIIiIK.................", ".............KIiIIK..KIIiIK.................", "............KOOOOOK..KOOOOOK................", "............KKKKKKK..KKKKKKK................", "............................................", "............................................", "............................................", "............................................"];
+function drawGrid(cv, grid, scale) {
+  cv.width = grid[0].length * scale; cv.height = grid.length * scale;
+  const ctx = cv.getContext("2d");
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  grid.forEach((row, y) => [...row].forEach((ch, x) => { if (PAL[ch]) { ctx.fillStyle = PAL[ch]; ctx.fillRect(x * scale, y * scale, scale, scale); } }));
+}
+// Letras 5x7 desenhadas à mão para o título.
+const FONT = {
+  N:["#...#","##..#","#.#.#","#.#.#","#..##","#...#","#...#"],
+  E:["#####","#....","#....","####.","#....","#....","#####"],
+  X:["#...#","#...#",".#.#.","..#..",".#.#.","#...#","#...#"],
+  T:["#####","..#..","..#..","..#..","..#..","..#..","..#.."],
+  S:[".####","#....","#....",".###.","....#","....#","####."],
+  " ":["...","...","...","...","...","...","..."]
+};
+function drawTitle(cv, text, scale) {
+  const glyphs = [...text].map(c => FONT[c]);
+  const w = glyphs.reduce((n, g) => n + g[0].length + 1, 1), h = 9;
+  const grid = Array.from({length: h}, () => Array(w).fill("."));
+  let x0 = 1;
+  glyphs.forEach(g => { g.forEach((row, y) => [...row].forEach((c, x) => { if (c === "#") grid[y + 1][x0 + x] = y < 3 ? "Y" : y < 5 ? "G" : "y"; })); x0 += g[0].length + 1; });
+  // contorno preto
+  const out = grid.map(r => r.slice());
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (grid[y][x] === ".") {
+    for (const [dy, dx] of [[-1,0],[1,0],[0,-1],[0,1]]) { const c = (grid[y+dy] || [])[x+dx]; if (c && c !== ".") { out[y][x] = "D"; break; } }
+  }
+  drawGrid(cv, out.map(r => r.join("")), scale);
+}
+const ICONS = {
+  key:["...YYY...","..Y...Y..","..Y...Y..","...YYY...","....Y....","....YY...","....Y....","....YY...","........."],
+  scroll:["..LLLLLl.",".L.....Ll",".LlllllL.",".L.....L.",".LlllllL.",".L.....L.",".LlllllL.","lL.....L.",".lLLLLL.."],
+  sword:[".......Ww","......WW.",".....WW..","....WW...","g..WW....",".gGW.....","..Gg.....",".G..g....","G........"],
+  hourglass:["GGGGGGG..",".Y...Y...",".YTTTY...","..YTY....","...Y.....","..Y.Y....",".Y.T.Y...",".YTTTY...","GGGGGGG.."],
+  book:["RRRRRRR..","RLLLLLLR.","RLlllLLR.","RLLLLLLR.","RLlllLLR.","RLLLLLLR.","RLLLLLLR.","rRRRRRRR.","........."]
+};
+function drawArt(happy) { drawGrid($("hero"), happy ? HERO_HAPPY : HERO_CRY, 4); }
+// Tocha na parede (2 quadros, chama tremulando).
+const TORCH = [
+  ["...Y...", "..YbY..", ".YbFbY.", ".YFfFY.", "..FfF..", "...K...", "..KBK..", "..KBK..", "..KBK..", "..KIK..", ".KIIIK."],
+  ["..Y....", "..YbY..", ".YbFbY.", "..YFfY.", "..FfF..", "...K...", "..KBK..", "..KBK..", "..KBK..", "..KIK..", ".KIIIK."]
+];
+let torchFrame = 0;
+function drawTorch() { drawGrid($("torch"), TORCH[torchFrame], 3); }
+const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+if (!reduceMotion) setInterval(() => { torchFrame = 1 - torchFrame; drawTorch(); }, 220);
+// Céu de noite entre 19h e 6h (horário do Windows).
+function updateSky() { const h = new Date().getHours(); $("banner").classList.toggle("night", h >= 19 || h < 6); }
+setInterval(updateSky, 60000);
+drawTitle($("titlePx"), "NEXT TS", 6);
+document.querySelectorAll("canvas[data-icon]").forEach(cv => drawGrid(cv, ICONS[cv.dataset.icon], 2));
+drawArt(false); drawTorch(); updateSky();
+let heroHappyNow = false;
+// O que o guerreiro fala e como se mexe, conforme a situação.
+function heroMood(S) {
+  const m = S.monitor;
+  if (m.running && m.phase === "pending") return ["É agora!!", "tense"];
+  if (m.running && m.phase === "waitingts") return ["Cadê o TeamSpeak?", "sob"];
+  if (m.running) return ["De olho no " + m.code + "...", "sob"];
+  if (m.phase === "failed") return ["Não deu dessa vez...", "sob"];
+  if (m.phase === "ended") return ["Acabou a janela...", "sob"];
+  if (m.phase === "sent") return ["Peguei o next!", "cheer"];
+  if (m.phase === "tested") return ["Teste certinho!", "cheer"];
+  if (!S.connected) return [S.autoWaiting ? "Cadê o TeamSpeak?" : "Conecte o TeamSpeak!", "sob"];
+  if (m.phase === "error") return ["Deu ruim...", "sob"];
+  if (m.phase === "stopped") return ["Desisti dessa...", "sob"];
+  return ["Escolha um respawn!", "sob"];
+}
+
+let S = null;                 // último estado vindo do app
+let catalog = [];
+let form = { handler: 0, cid: 0, botUID: "", code: "C1", codeB: "", windowOn: false, windowStart: "20:00", windowEnd: "22:30", testMode: false };
+let syncLists = true;         // próxima leitura copia canal/bot escolhidos pelo app
+let firstState = true;
+let busy = false;
+let lastLogKey = "";
+let listsSig = "";
+let wasConnected = false;
+let wasRunning = false;
+let presetSig = "";
+
+async function api(path, body) {
+  const opt = { headers: { "X-Token": T } };
+  if (body !== undefined) { opt.method = "POST"; opt.headers["Content-Type"] = "application/json"; opt.body = JSON.stringify(body); }
+  const r = await fetch("/api/" + path, opt);
+  let data = null;
+  try { data = await r.json(); } catch (e) {}
+  if (!r.ok) throw new Error((data && data.error) || ("Erro " + r.status));
+  return data;
+}
+
+function showErr(msg) { const b = $("connErr"); b.textContent = msg || ""; b.style.display = msg ? "block" : "none"; }
+
+function fillSelect(sel, items, valueOf, labelOf, value) {
+  const prev = sel.value;
+  sel.textContent = "";
+  for (const it of items) {
+    const o = document.createElement("option");
+    o.value = String(valueOf(it)); o.textContent = labelOf(it);
+    sel.appendChild(o);
+  }
+  const want = String(value);
+  if ([...sel.options].some(o => o.value === want)) sel.value = want;
+  else if ([...sel.options].some(o => o.value === prev)) sel.value = prev;
+}
+
+function codeInfo(code) {
+  const c = (code || "").trim().toUpperCase();
+  const ok = /^[A-Z]{1,3}[0-9]{1,3}$/.test(c);
+  const hit = catalog.find(r => r.code === c);
+  return { c, ok, name: hit ? hit.name : "" };
+}
+
+function botName(uid) { const b = (S && S.clients || []).find(c => c.uid === uid); return b ? b.name : ""; }
+
+// Minutos do dia de "20:00" (ou null).
+function hm(v) { const m = /^(\d{2}):(\d{2})$/.exec(v || ""); return m && +m[1] < 24 && +m[2] < 60 ? +m[1] * 60 + +m[2] : null; }
+
+function codeHint(el, code, other, emptyText) {
+  const ci = codeInfo(code);
+  el.classList.toggle("err", !!code && !ci.ok);
+  el.textContent = !code ? emptyText : !ci.ok ? "Código inválido. Exemplos: C1, D15, AB2." : (ci.name ? ci.c + " — " + ci.name : ci.c + " (fora da lista conhecida, mas funciona igual)");
+  el.classList.toggle("hidden", !other);
+  return ci;
+}
+
+function renderForm() {
+  const running = S && S.monitor.running;
+  const connected = S && S.connected;
+  $("cardWhere").classList.toggle("disabled", !connected);
+  $("cardWhat").classList.toggle("disabled", !connected);
+  // Ligado: esconde as escolhas para a Situação ficar à vista.
+  $("cardWhere").classList.toggle("hidden", !!running);
+  $("cardWhat").classList.toggle("hidden", !!running);
+  const ci = codeHint($("codeName"), form.code, $("codeSel").value === "__other", "Digite o código do respawn.");
+  const otherB = $("codeSelB").value === "__other";
+  const hasB = otherB || !!form.codeB;
+  const ciB = codeHint($("codeNameB"), form.codeB, otherB, "Digite o código do Plano B.");
+  const sameB = hasB && ciB.ok && ciB.c === ci.c;
+  if (sameB) { $("codeNameB").classList.remove("hidden"); $("codeNameB").classList.add("err"); $("codeNameB").textContent = "O Plano B não pode ser o mesmo respawn do Plano A."; }
+  const badB = hasB && (!ciB.ok || sameB);
+  // Janela
+  $("winRow").classList.toggle("off", !form.windowOn);
+  $("winStart").disabled = $("winEnd").disabled = !form.windowOn || !!running;
+  const ws = hm(form.windowStart), we = hm(form.windowEnd);
+  const badWin = form.windowOn && (ws === null || we === null);
+  const wh = $("winHint");
+  wh.className = "hint" + (badWin ? " err" : "");
+  if (!form.windowOn) wh.textContent = "Desligado: pega a qualquer hora.";
+  else if (badWin) wh.textContent = "Preencha os dois horários (ex.: 20:00 e 22:30).";
+  else wh.textContent = "Pega só se a hunt for começar entre " + form.windowStart + " e " + form.windowEnd + (we < ws ? " (passa da meia-noite)" : "") + ". Passou das " + form.windowEnd + ", o app para sozinho.";
+  const bn = botName(form.botUID);
+  const pv = $("preview");
+  pv.textContent = "";
+  if (ci.ok && bn && !badB) {
+    pv.append(form.testMode ? "Modo teste: mostraria " : "Vai enviar ");
+    const c = document.createElement("code"); c.textContent = "!next " + ci.c; pv.append(c);
+    if (hasB) { pv.append(" (ou "); const c2 = document.createElement("code"); c2.textContent = "!next " + ciB.c; pv.append(c2, " no Plano B)"); }
+    pv.append(" para " + bn + ", uma única vez, quando alguém entrar na hunt" + (form.windowOn && !badWin ? " e a sua hunt for começar entre " + form.windowStart + " e " + form.windowEnd : "") + ".");
+  } else {
+    pv.append(!bn ? "Escolha acima quem recebe o comando." : badB ? "Arrume o Plano B ou escolha \"Sem Plano B\"." : "Escolha o respawn do Plano A.");
+  }
+  const go = $("go");
+  if (running) { go.className = "stop"; go.textContent = "Parar"; go.disabled = false; }
+  else { go.className = "start"; go.textContent = form.testMode ? "Iniciar teste" : "Iniciar"; go.disabled = !connected || !ci.ok || !bn || !form.cid || badB || badWin || busy; }
+}
+
+function fmtSecs(n) {
+  if (n < 60) return n + " s";
+  const m = Math.floor(n / 60); return m < 60 ? m + " min" : Math.floor(m / 60) + " h " + (m % 60) + " min";
+}
+
+function render() {
+  if (!S) return;
+  // Conexão
+  const pill = $("pill");
+  pill.className = "pill " + (S.connected ? "on" : "off");
+  pill.textContent = S.connecting ? "Conectando..." : S.connected ? "Conectado" : S.autoWaiting ? "Esperando o TS" : "Desconectado";
+  if (S.connected && !wasConnected) syncLists = true; // (re)conectou: usa o canal e o bot escolhidos pelo app
+  wasConnected = S.connected;
+  $("autoHint").classList.toggle("hidden", !(S.autoWaiting && !S.connected && !showOtherKey));
+  $("connForm").classList.toggle("hidden", S.connected);
+  $("connDone").classList.toggle("hidden", !S.connected);
+  const saved = S.hasKey && !showOtherKey && !S.autoBlocked; // chave recusada: pede uma nova
+  $("savedKeyRow").classList.toggle("hidden", !saved);
+  $("savedKeyText").textContent = S.hasSavedKey ? "Chave salva neste PC." : "Chave já informada nesta sessão.";
+  $("keyRow").classList.toggle("hidden", saved);
+  $("otherKey").classList.toggle("hidden", !saved);
+  $("connect").disabled = S.connecting || busy;
+  $("connect").textContent = S.connecting ? "Conectando..." : "Conectar";
+  $("forget").classList.toggle("hidden", !S.hasSavedKey);
+  const sv = (S.servers || []).find(s => s.handler === S.handler);
+  $("connWho").textContent = sv ? ("Conectado como " + sv.myName + " em " + sv.name + ".") : "Conectado.";
+  if (!S.connected && S.connErr && !S.autoWaiting) showErr(S.connErr); else if (S.connected || S.autoWaiting) showErr("");
+
+  // Listas
+  const sig = JSON.stringify([S.servers, S.channels, S.clients, S.handler]);
+  if (sig !== listsSig || syncLists) {
+    listsSig = sig;
+    if (syncLists && S.connected) { form.handler = S.handler; form.cid = S.cid; form.botUID = S.botUID; syncLists = false; peekSoon(); }
+    $("serverWrap").classList.toggle("hidden", (S.servers || []).length <= 1);
+    fillSelect($("server"), S.servers || [], s => s.handler, s => s.name + " (" + s.myName + ")", form.handler);
+    fillSelect($("channel"), S.channels || [], c => c.cid, c => c.name, form.cid);
+    fillSelect($("bot"), S.clients || [], c => c.uid, c => c.name, form.botUID);
+    form.handler = +$("server").value || S.handler; form.cid = +$("channel").value || 0; form.botUID = $("bot").value || "";
+  }
+  renderPresets();
+  if (firstState) {
+    firstState = false;
+    form.code = S.code || "C1"; form.codeB = S.codeB || "";
+    form.windowOn = !!S.windowOn; form.windowStart = S.windowStart || "20:00"; form.windowEnd = S.windowEnd || "22:30";
+    $("code").value = form.code;
+    if (catalog.some(r => r.code === form.code)) $("codeSel").value = form.code;
+    else { $("codeSel").value = "__other"; $("code").classList.remove("hidden"); }
+    $("codeB").value = form.codeB;
+    if (!form.codeB) $("codeSelB").value = "";
+    else if (catalog.some(r => r.code === form.codeB)) $("codeSelB").value = form.codeB;
+    else { $("codeSelB").value = "__other"; $("codeB").classList.remove("hidden"); }
+    $("windowOn").checked = form.windowOn; $("winStart").value = form.windowStart; $("winEnd").value = form.windowEnd;
+    $("port").value = S.port || 25639;
+    $("remember").checked = S.hasSavedKey ? true : S.remember !== false;
+  }
+  for (const id of ["server", "channel", "bot", "code", "codeSel", "codeB", "codeSelB", "windowOn", "testMode", "savePreset"]) $(id).disabled = S.monitor.running;
+  if ($("clock").textContent !== S.now) $("clock").textContent = S.now || "--:--:--";
+  renderForm();
+
+  // Situação
+  const m = S.monitor;
+  const happy = m.phase === "sent" || m.phase === "tested";
+  if (happy !== heroHappyNow) { heroHappyNow = happy; drawArt(happy); }
+  const [say, move] = heroMood(S);
+  if ($("speech").textContent !== say) $("speech").textContent = say;
+  if ($("hero").className !== move) $("hero").className = move;
+  const card = $("cardStatus");
+  card.className = "card status " + (m.phase || "idle");
+  // Terminou (enviou, testou ou deu erro): mostra a Situação, que fica mais para baixo.
+  if (wasRunning && !m.running && ["sent", "tested", "error", "failed", "ended"].includes(m.phase)) {
+    setTimeout(() => card.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "center" }), 50);
+  }
+  wasRunning = m.running;
+  let txt = m.status || "Parado.";
+  if (m.phase === "idle") txt = S.connected ? "Pronto. Escolha o respawn e clique em Iniciar." : "Conecte ao TeamSpeak para começar.";
+  if (m.running) txt = (m.testMode ? "[TESTE] " : "") + "Plano " + m.plan + " (" + m.code + "): " + txt;
+  $("stText").textContent = txt;
+  const sum = $("summary");
+  if (m.running) {
+    sum.classList.remove("hidden");
+    sum.textContent = (m.testMode ? "Modo teste · " : "") + "1º next · comando para " + botName(S.botUID) + (m.window ? " · janela " + m.window : " · sem janela de horário") + " · relógio " + S.now;
+  } else sum.classList.add("hidden");
+  const pl = $("planline");
+  const showPlans = m.codeA && (m.running || ["sent", "tested", "failed", "ended", "stopped", "error"].includes(m.phase));
+  pl.classList.toggle("hidden", !showPlans);
+  if (showPlans) {
+    const sig = [m.codeA, m.codeB, m.plan].join("|");
+    if (pl.dataset.sig !== sig) {
+      pl.dataset.sig = sig; pl.textContent = "";
+      const mk = (letter, code) => { const sp = document.createElement("span"); sp.textContent = "Plano " + letter + " · " + code;
+        if (m.plan === letter) sp.className = "cur"; else if (letter === "A" && m.plan === "B") sp.className = "gone"; return sp; };
+      pl.append(mk("A", m.codeA));
+      if (m.codeB) pl.append(mk("B", m.codeB));
+    }
+  }
+  const cl = $("calc");
+  cl.classList.toggle("hidden", !m.calc);
+  if (m.calc && cl.textContent !== m.calc) cl.textContent = m.calc;
+  const cnt = $("count");
+  if (m.running && m.phase === "pending" && m.pendingMs > 0) { cnt.classList.remove("hidden"); cnt.textContent = "Enviando em " + (m.pendingMs / 1000).toFixed(1).replace(".", ",") + " s"; }
+  else cnt.classList.add("hidden");
+  const lb = $("lineBox");
+  if (m.running || m.line) {
+    lb.classList.remove("hidden");
+    if (m.present) { lb.classList.remove("free"); lb.textContent = m.line; }
+    else { lb.classList.add("free"); lb.textContent = m.code + " não está na lista agora (respawn livre)."; }
+    if (m.running && m.phase === "waitingts" && !m.line) lb.classList.add("hidden");
+  } else lb.classList.add("hidden");
+  const meta = $("meta"); meta.textContent = "";
+  if (m.running && m.endsAt) meta.append("Quem está na hunt sai às " + m.endsAt + ". ");
+  if (m.running && (m.lastUpdate || m.secondsSinceChange)) {
+    if (m.lastUpdate) meta.append("Lista atualizada pelo bot às " + m.lastUpdate.split(" ").pop() + ". ");
+    const sp = document.createElement("span");
+    sp.textContent = "A lista mudou pela última vez há " + fmtSecs(m.secondsSinceChange) + ".";
+    if (m.secondsSinceChange > 600) { sp.className = "warn"; sp.textContent += " Se o bot da lista estiver funcionando, clique no canal da lista no TeamSpeak."; }
+    meta.append(sp);
+  }
+
+  // Histórico
+  const logs = S.log || [];
+  const key = logs.length + "|" + (logs.length ? logs[logs.length - 1].time + logs[logs.length - 1].text : "");
+  if (key !== lastLogKey) {
+    lastLogKey = key;
+    const box = $("log"); box.textContent = "";
+    for (const e of logs.slice().reverse()) {
+      const d = document.createElement("div");
+      const t = document.createElement("time"); t.textContent = e.time;
+      const s = document.createElement("span"); s.className = e.kind; s.textContent = e.text;
+      d.append(t, s); box.append(d);
+    }
+    if (!logs.length) box.textContent = "Nada ainda.";
+  }
+  $("ver").textContent = "Next TS " + S.version;
+}
+
+// Mostra, antes de iniciar, o que o app enxerga no canal e no respawn escolhidos.
+let peekTimer = null;
+function peekSoon() { clearTimeout(peekTimer); peekTimer = setTimeout(peekLoop, 150); }
+async function peekLoop() {
+  clearTimeout(peekTimer);
+  try {
+    const ci = codeInfo(form.code);
+    if (S && S.connected && !S.monitor.running && form.cid) {
+      const ciB = codeInfo(form.codeB);
+      const pv = await api("peek", { cid: form.cid, code: ci.ok ? ci.c : "", codeB: ciB.ok ? ciB.c : "" });
+      const info = $("chanInfo"), live = $("live");
+      info.className = "hint"; live.className = "live blank";
+      if (!pv.ok) { info.textContent = pv.error || ""; live.textContent = "\u00a0"; }
+      else if (!pv.hasList) {
+        info.className = "hint err";
+        info.textContent = "Este canal está sem a lista de respawns. Escolha o canal certo (ex.: Claimeds) e clique nele uma vez no TeamSpeak.";
+        live.textContent = "\u00a0";
+      } else {
+        info.className = "hint good";
+        info.textContent = "Lista encontrada: " + (pv.lines ? pv.lines + " respawns ocupados" : "nenhum respawn ocupado agora") + (pv.lastUpdate ? " · atualizada às " + pv.lastUpdate.split(" ").pop() : "") + ".";
+        live.className = "live on" + (ci.ok ? "" : " blank");
+        live.textContent = ci.ok ? pv.summary : "\u00a0";
+        $("liveB").className = "live on" + (pv.summaryB ? "" : " blank");
+        $("liveB").textContent = pv.summaryB || "\u00a0";
+      }
+    } else if (S && !S.connected) { $("chanInfo").textContent = "\u00a0"; $("live").textContent = "\u00a0"; }
+  } catch (e) {}
+  peekTimer = setTimeout(peekLoop, 1500);
+}
+
+// Atalhos de claim: botões que trocam canal + bot de uma vez.
+function renderPresets() {
+  const list = (S && S.presets) || [];
+  const sig = JSON.stringify([list, form.cid, form.botUID, S && S.monitor.running]);
+  if (sig === presetSig) return;
+  presetSig = sig;
+  $("presetBox").classList.toggle("hidden", !list.length);
+  const box = $("chips"); box.textContent = "";
+  for (const p of list) {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "chip";
+    const usable = p.cid > 0;
+    if (usable && p.cid === form.cid && p.botUID === form.botUID) b.classList.add("sel");
+    if (!usable || !p.botOnline) b.classList.add("off");
+    b.title = !usable ? "O canal \"" + p.channelName + "\" não existe neste servidor." :
+      (p.botOnline ? "Lê o canal \"" + p.channelName + "\" e manda o comando para " + p.botName + "." : p.botName + " não está no servidor agora.");
+    const dot = document.createElement("span"); dot.className = "dot";
+    const name = document.createElement("span"); name.textContent = p.name;
+    const x = document.createElement("span"); x.className = "x"; x.textContent = "×"; x.title = "Apagar este atalho";
+    b.append(dot, name, x);
+    b.disabled = S.monitor.running;
+    b.onclick = (e) => {
+      if (e.target === x) {
+        e.stopPropagation();
+        if (confirm("Apagar o atalho \"" + p.name + "\"?")) action(() => api("preset/delete", { name: p.name }));
+        return;
+      }
+      if (!usable) { alertBox("O canal \"" + p.channelName + "\" não existe neste servidor. Clique em Atualizar listas ou apague o atalho."); return; }
+      form.cid = p.cid; $("channel").value = String(p.cid);
+      if (p.botOnline) { form.botUID = p.botUID; $("bot").value = p.botUID; }
+      else alertBox(p.botName + " não está no servidor agora. Troquei só o canal da lista.");
+      saveChoice(); renderForm(); renderPresets(); peekSoon();
+    };
+    box.append(b);
+  }
+}
+// Lembra o canal e o bot escolhidos (para a próxima vez que abrir o app).
+function saveChoice() { api("select", { cid: form.cid, botUID: form.botUID }).catch(() => {}); }
+
+let showOtherKey = false;
+let failCount = 0;
+async function tick() {
+  try {
+    S = await api("state"); failCount = 0; render();
+  } catch (e) {
+    failCount++;
+    if (failCount === 3) { $("stText").textContent = "O app foi fechado. Abra o Next TS de novo."; $("pill").className = "pill off"; $("pill").textContent = "Fechado"; }
+  }
+  setTimeout(tick, 400);
+}
+
+async function action(fn) {
+  if (busy || !S) return; // janela ainda carregando: ignora o clique
+  busy = true; renderForm();
+  try { await fn(); hideNotice(); } catch (e) { alertBox(e.message); }
+  busy = false;
+  try { S = await api("state"); render(); } catch (e) {}
+}
+
+// Mostra o aviso de um problema por alguns segundos (não some na próxima atualização da tela).
+let noticeTimer = null;
+function alertBox(msg) {
+  $("noticeText").textContent = msg;
+  $("notice").classList.remove("hidden");
+  clearTimeout(noticeTimer);
+  noticeTimer = setTimeout(() => $("notice").classList.add("hidden"), 9000);
+}
+function hideNotice() { clearTimeout(noticeTimer); $("notice").classList.add("hidden"); }
+$("notice").onclick = hideNotice;
+
+$("showKey").onclick = () => { const k = $("key"); k.type = k.type === "password" ? "text" : "password"; };
+$("otherKey").onclick = () => { showOtherKey = true; render(); $("key").focus(); };
+$("connect").onclick = () => action(async () => {
+  showErr("");
+  const typing = showOtherKey || !S.hasKey || S.autoBlocked;
+  const key = typing ? $("key").value.trim() : "";
+  if (typing && !key) throw new Error("Cole a API Key primeiro.");
+  await api("connect", { key, port: +$("port").value || 25639, remember: $("remember").checked || (!!S.hasSavedKey && !showOtherKey) });
+  $("key").value = ""; showOtherKey = false; syncLists = true;
+});
+$("key").addEventListener("keydown", e => { if (e.key === "Enter") $("connect").click(); });
+$("reconnect").onclick = () => action(async () => { await api("connect", { key: "", port: S.port, remember: S.hasSavedKey }); syncLists = true; });
+$("forget").onclick = () => action(async () => { if (confirm("Apagar a chave salva neste PC?")) await api("forget", {}); });
+$("refresh").onclick = () => action(async () => { await api("refresh", { handler: form.handler }); syncLists = true; });
+$("server").onchange = () => { form.handler = +$("server").value; action(async () => { await api("refresh", { handler: form.handler }); syncLists = true; }); };
+$("channel").onchange = () => { form.cid = +$("channel").value; saveChoice(); renderForm(); renderPresets(); peekSoon(); };
+$("bot").onchange = () => { form.botUID = $("bot").value; saveChoice(); renderForm(); renderPresets(); };
+$("savePreset").onclick = () => {
+  if (!form.cid || !form.botUID) { alertBox("Escolha o canal e quem recebe o comando antes de salvar o atalho."); return; }
+  const name = prompt("Nome do atalho (ex.: x3tBot, MissClick Test):", botName(form.botUID));
+  if (name === null) return;
+  action(() => api("preset/save", { name: name.trim(), cid: form.cid, botUID: form.botUID }));
+};
+$("code").oninput = () => { form.code = $("code").value.trim().toUpperCase(); renderForm(); peekSoon(); };
+$("codeSel").onchange = () => {
+  const v = $("codeSel").value;
+  $("code").classList.toggle("hidden", v !== "__other");
+  if (v === "__other") { form.code = $("code").value.trim().toUpperCase(); $("code").focus(); }
+  else form.code = v;
+  renderForm(); peekSoon();
+};
+$("code").addEventListener("change", () => { const ci = codeInfo($("code").value); if (ci.ok) { $("code").value = ci.c; form.code = ci.c; } renderForm(); });
+$("codeB").oninput = () => { form.codeB = $("codeB").value.trim().toUpperCase(); renderForm(); peekSoon(); };
+$("codeB").addEventListener("change", () => { const ci = codeInfo($("codeB").value); if (ci.ok) { $("codeB").value = ci.c; form.codeB = ci.c; } renderForm(); });
+$("codeSelB").onchange = () => {
+  const v = $("codeSelB").value;
+  $("codeB").classList.toggle("hidden", v !== "__other");
+  if (v === "__other") { form.codeB = $("codeB").value.trim().toUpperCase(); $("codeB").focus(); }
+  else form.codeB = v;
+  renderForm(); peekSoon();
+};
+$("windowOn").onchange = () => { form.windowOn = $("windowOn").checked; renderForm(); };
+// Horário em 24 h: aceita "20:00", "2000", "20h00", "20" e arruma para "20:00".
+function tidyHM(v) {
+  const t = (v || "").trim().replace(/[hH.]/, ":");
+  let m = /^(\d{1,2}):(\d{1,2})$/.exec(t) || /^(\d{1,2})(\d{2})$/.exec(t);
+  if (!m && /^\d{1,2}$/.test(t)) m = [t, t, "0"];
+  if (!m || +m[1] > 23 || +m[2] > 59) return t;
+  return String(+m[1]).padStart(2, "0") + ":" + String(+m[2]).padStart(2, "0");
+}
+for (const [id, key] of [["winStart", "windowStart"], ["winEnd", "windowEnd"]]) {
+  $(id).oninput = () => { form[key] = tidyHM($(id).value); renderForm(); };
+  $(id).addEventListener("change", () => { $(id).value = form[key] = tidyHM($(id).value); renderForm(); });
+}
+$("testMode").onchange = () => { form.testMode = $("testMode").checked; renderForm(); };
+$("go").onclick = () => action(async () => {
+  if (S.monitor.running) { await api("stop", {}); return; }
+  const ci = codeInfo(form.code);
+  const ciB = codeInfo(form.codeB);
+  await api("start", { handler: form.handler, cid: form.cid, botUID: form.botUID, code: ci.c, codeB: form.codeB ? ciB.c : "",
+    windowOn: form.windowOn, windowStart: form.windowStart, windowEnd: form.windowEnd, testMode: form.testMode });
+});
+$("quit").onclick = async () => {
+  if (S && S.monitor.running && !confirm("O monitoramento está ligado. Fechar mesmo assim?")) return;
+  try { await api("quit", {}); } catch (e) {}
+  window.close();
+  document.body.textContent = "Pode fechar esta janela.";
+};
+window.addEventListener("beforeunload", e => { if (S && S.monitor.running) { e.preventDefault(); e.returnValue = ""; } });
+window.addEventListener("pagehide", () => { try { navigator.sendBeacon("/api/bye?t=" + encodeURIComponent(T)); } catch (e) {} });
+
+(async () => {
+  try {
+    catalog = await api("catalog");
+    const nb = document.createElement("option"); nb.value = ""; nb.textContent = "Sem Plano B"; $("codeSelB").appendChild(nb);
+    for (const sel of [$("codeSel"), $("codeSelB")]) {
+      let group = null, region = "";
+      for (const r of catalog) {
+        if (r.region !== region) { region = r.region; group = document.createElement("optgroup"); group.label = region; sel.appendChild(group); }
+        const o = document.createElement("option"); o.value = r.code; o.textContent = r.code + " — " + r.name; group.appendChild(o);
+      }
+      const g = document.createElement("optgroup"); g.label = "Outro";
+      const o = document.createElement("option"); o.value = "__other"; o.textContent = "Outro código (digitar)..."; g.appendChild(o); sel.appendChild(g);
+    }
+  } catch (e) {}
+  tick();
+  peekLoop();
+})();
+</script>
+</body>
+</html>
