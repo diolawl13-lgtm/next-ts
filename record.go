@@ -2,10 +2,13 @@ package main
 
 // Gravação em vídeo da janela do TeamSpeak durante o monitoramento.
 //
+//   - só a janela do TeamSpeak, do tamanho dela (sem faixa nem bordas);
 //   - 5 quadros por segundo, do Iniciar até 10 s depois de enviar (ou do teste);
-//   - embaixo da imagem do TS vai uma faixa com o relógio do PC e os últimos
-//     acontecimentos (ex.: "20:15:03 ENVIADO "!next C1" para x3tBot");
-//   - quadro igual ao anterior não é gravado de novo (o vídeo fica bem menor);
+//   - imagem igual à anterior não é gravada de novo (o vídeo fica bem menor);
+//   - partes que se mexem sozinhas o tempo todo (ex.: o aviso que passa rolando na
+//     barra de baixo do TS) não fazem gravar imagem nova: aparecem atualizadas a
+//     cada 2 s. Qualquer outra mudança (chat, lista) é gravada na hora;
+//   - TS minimizado/fechado: aparece uma tela com o aviso no lugar da janela;
 //   - formato AVI com imagens JPEG (MJPEG): abre no VLC e na maioria dos players;
 //   - nunca apaga gravações antigas;
 //   - um problema na gravação nunca atrapalha o monitoramento nem o envio.
@@ -15,10 +18,10 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"fmt"
-	"hash/fnv"
 	"image"
 	"image/color"
 	"image/jpeg"
+	"math/bits"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,15 +35,17 @@ const (
 	recFrame     = time.Second / RecFPS
 	RecTailSent  = 10 * time.Second // continua gravando depois de enviar (pega a resposta do bot)
 	RecTailOther = 2 * time.Second
-	recMinW      = 960
-	recDefaultW  = 1280
+	recDefaultW  = 1280 // tamanho do vídeo se o TS não estiver aberto no começo
 	recDefaultH  = 720
 	recJPEGQ     = 80
-	recPartLimit = 1 << 30 // 1 GB por arquivo; passou disso, continua num "_parte2"
-	recBarLines  = 3
+	recPartLimit = 1 << 30         // 1 GB por arquivo; passou disso, continua num "_parte2"
+	recTile      = 32              // a imagem é comparada em quadradinhos de 32x32
+	recNoisy     = 6               // mudou em 6 das últimas 10 capturas (2 s): "se mexe sozinho"
+	recNoisyGap  = 2 * time.Second // de quanto em quanto tempo essas partes são atualizadas
+	recSpread    = 4               // quadradinhos vizinhos (na mesma linha) contam junto
 )
 
-// ---------- Letras da faixa ----------
+// ---------- Letras (avisos no lugar da janela) ----------
 
 var (
 	fontOnce  sync.Once
@@ -102,15 +107,6 @@ func drawText(img *image.RGBA, x, y int, text string, c color.RGBA, scale int) i
 
 func textWidth(text string, scale int) int { return utf8.RuneCountInString(text) * fontW * scale }
 
-// fitText corta o texto em `n` letras, terminando com "…" se precisar.
-func fitText(text string, n int) string {
-	r := []rune(text)
-	if n < 1 || len(r) <= n {
-		return text
-	}
-	return string(r[:n-1]) + "…"
-}
-
 func fillRect(img *image.RGBA, r image.Rectangle, c color.RGBA) {
 	r = r.Intersect(img.Bounds())
 	for y := r.Min.Y; y < r.Max.Y; y++ {
@@ -122,41 +118,108 @@ func fillRect(img *image.RGBA, r image.Rectangle, c color.RGBA) {
 	}
 }
 
-// fitInto desenha `src` dentro de `dst` (área r), mantendo a proporção.
-// Do mesmo tamanho: copia direto. Maior: reduz. Menor: centraliza.
-func fitInto(dst *image.RGBA, r image.Rectangle, src *image.RGBA) {
-	sw, sh := src.Bounds().Dx(), src.Bounds().Dy()
+// fillWith desenha `src` ocupando `dst` inteira. Do mesmo tamanho: copia direto.
+// Se o TS mudou de tamanho no meio da gravação, ajusta ao tamanho do começo
+// (sem faixas nem bordas).
+func fillWith(dst, src *image.RGBA) {
+	sb, db := src.Bounds(), dst.Bounds()
+	sw, sh, dw, dh := sb.Dx(), sb.Dy(), db.Dx(), db.Dy()
 	if sw <= 0 || sh <= 0 {
 		return
 	}
-	if sw == r.Dx() && sh == r.Dy() {
+	if sw == dw && sh == dh {
 		for y := 0; y < sh; y++ {
-			so := src.PixOffset(src.Bounds().Min.X, src.Bounds().Min.Y+y)
-			do := dst.PixOffset(r.Min.X, r.Min.Y+y)
+			so, do := src.PixOffset(sb.Min.X, sb.Min.Y+y), dst.PixOffset(db.Min.X, db.Min.Y+y)
 			copy(dst.Pix[do:do+4*sw], src.Pix[so:so+4*sw])
 		}
 		return
 	}
-	w, h := sw, sh
-	if w > r.Dx() || h > r.Dy() {
-		if w*r.Dy() > h*r.Dx() {
-			w, h = r.Dx(), sh*r.Dx()/sw
-		} else {
-			w, h = sw*r.Dy()/sh, r.Dy()
-		}
-	}
-	if w <= 0 || h <= 0 {
-		return
-	}
-	ox, oy := r.Min.X+(r.Dx()-w)/2, r.Min.Y+(r.Dy()-h)/2
-	for y := 0; y < h; y++ {
-		sy := src.Bounds().Min.Y + y*sh/h
-		do := dst.PixOffset(ox, oy+y)
-		for x := 0; x < w; x++ {
-			so := src.PixOffset(src.Bounds().Min.X+x*sw/w, sy)
+	for y := 0; y < dh; y++ {
+		sy := sb.Min.Y + y*sh/dh
+		do := dst.PixOffset(db.Min.X, db.Min.Y+y)
+		for x := 0; x < dw; x++ {
+			so := src.PixOffset(sb.Min.X+x*sw/dw, sy)
 			copy(dst.Pix[do+4*x:do+4*x+4], src.Pix[so:so+4])
 		}
 	}
+}
+
+// ---------- Imagem nova ou repetida? ----------
+
+// frameDiff compara cada captura, em quadradinhos, com a anterior e com a que está
+// no vídeo. Um quadradinho que mudou em quase todas as últimas capturas "se mexe
+// sozinho" (ex.: aviso rolando): mudança só nele não pede imagem nova na hora.
+type frameDiff struct {
+	w, h, tx, ty int
+	prev, shown  []byte   // última captura e última imagem gravada
+	hist         []uint16 // por quadradinho: mudou (1) ou não (0) nas últimas capturas
+	lastShown    time.Time
+}
+
+func newFrameDiff(w, h int) *frameDiff {
+	tx, ty := (w+recTile-1)/recTile, (h+recTile-1)/recTile
+	return &frameDiff{w: w, h: h, tx: tx, ty: ty, prev: make([]byte, w*h*4), shown: make([]byte, w*h*4), hist: make([]uint16, tx*ty)}
+}
+
+// changes: any = algo está diferente do que aparece no vídeo; important = mudou
+// alguma parte que não "se mexe sozinha" (precisa de imagem nova na hora).
+//
+// Um texto que passa rolando sempre entra em quadradinhos "novos" pela ponta. Por
+// isso, um quadradinho perto (na mesma linha) de outro que se mexe sozinho também
+// conta como "se mexendo sozinho".
+func (d *frameDiff) changes(pix []byte) (any, important bool) {
+	stride := d.w * 4
+	diff := make([]bool, len(d.hist)) // diferente do que aparece no vídeo
+	for ty := 0; ty < d.ty; ty++ {
+		y0, y1 := ty*recTile, min((ty+1)*recTile, d.h)
+		for tx := 0; tx < d.tx; tx++ {
+			x0, x1 := tx*recTile*4, min((tx+1)*recTile, d.w)*4
+			cp, cs := false, false
+			for y := y0; y < y1 && !(cp && cs); y++ {
+				o := y * stride
+				row := pix[o+x0 : o+x1]
+				cp = cp || !bytes.Equal(row, d.prev[o+x0:o+x1])
+				cs = cs || !bytes.Equal(row, d.shown[o+x0:o+x1])
+			}
+			i := ty*d.tx + tx
+			d.hist[i] <<= 1
+			if cp {
+				d.hist[i] |= 1
+			}
+			diff[i] = cs
+		}
+	}
+	copy(d.prev, pix)
+	noisy := func(i int) bool { return bits.OnesCount16(d.hist[i]&0x3FF) >= recNoisy }
+	for ty := 0; ty < d.ty; ty++ {
+		for tx := 0; tx < d.tx; tx++ {
+			i := ty*d.tx + tx
+			if !diff[i] {
+				continue
+			}
+			any = true
+			calm := true
+			for nx := max(0, tx-recSpread); nx <= min(d.tx-1, tx+recSpread) && calm; nx++ {
+				calm = !noisy(ty*d.tx + nx)
+			}
+			if calm {
+				important = true
+			}
+		}
+	}
+	return any, important
+}
+
+// need diz se esta captura vira imagem nova no vídeo (true) ou se repete a
+// anterior (false). force = começo do arquivo (sempre grava).
+func (d *frameDiff) need(pix []byte, at time.Time, force bool) bool {
+	any, important := d.changes(pix)
+	if force || important || (any && at.Sub(d.lastShown) >= recNoisyGap) {
+		copy(d.shown, pix)
+		d.lastShown = at
+		return true
+	}
+	return false
 }
 
 // ---------- Arquivo AVI (MJPEG) ----------
@@ -336,10 +399,6 @@ func allBlack(img *image.RGBA) bool {
 	return true
 }
 
-type recEvent struct {
-	time, kind, text string
-}
-
 // RecView é o que a janelinha mostra sobre a gravação.
 type RecView struct {
 	On      bool   `json:"on"`
@@ -354,8 +413,6 @@ type RecView struct {
 type recSession struct {
 	id      int
 	base    string // caminho sem ".avi"
-	header  string
-	events  []recEvent
 	stopAt  time.Time
 	stopNow chan struct{}
 	done    chan struct{}
@@ -384,7 +441,7 @@ func NewRecorder(dir string, logf func(kind, text string)) *Recorder {
 func (r *Recorder) Dir() string { return r.dir }
 
 // Begin começa uma gravação nova (encerra na hora a anterior, se ainda estiver gravando).
-func (r *Recorder) Begin(code, header string, test bool) (string, error) {
+func (r *Recorder) Begin(code string, test bool) (string, error) {
 	if err := os.MkdirAll(r.dir, 0o755); err != nil {
 		return "", err
 	}
@@ -401,7 +458,7 @@ func (r *Recorder) Begin(code, header string, test bool) (string, error) {
 		r.cur.halt()
 	}
 	r.n++
-	s := &recSession{id: r.n, base: base, header: header, stopNow: make(chan struct{}), done: make(chan struct{}), file: filepath.Base(base + ".avi")}
+	s := &recSession{id: r.n, base: base, stopNow: make(chan struct{}), done: make(chan struct{}), file: filepath.Base(base + ".avi")}
 	r.cur = s
 	r.mu.Unlock()
 	go r.loop(s)
@@ -411,20 +468,6 @@ func (r *Recorder) Begin(code, header string, test bool) (string, error) {
 func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }
 
 func (s *recSession) halt() { s.once.Do(func() { close(s.stopNow) }) }
-
-// Event põe um acontecimento na faixa do vídeo (só os mais recentes aparecem).
-func (r *Recorder) Event(kind, at, text string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.cur == nil {
-		return
-	}
-	s := r.cur
-	s.events = append(s.events, recEvent{at, kind, text})
-	if len(s.events) > recBarLines-1 {
-		s.events = s.events[len(s.events)-(recBarLines-1):]
-	}
-}
 
 // End encerra a gravação atual depois de `tail` (continua gravando até lá).
 func (r *Recorder) End(tail time.Duration) {
@@ -471,18 +514,16 @@ func (r *Recorder) log(kind, format string, args ...any) {
 	}
 }
 
-// loop captura, monta a imagem com a faixa e grava, 5 vezes por segundo.
+// loop captura a janela do TS e grava, 5 vezes por segundo.
 func (r *Recorder) loop(s *recSession) {
 	defer close(s.done)
 	img, st := r.capture()
 	w, h := recDefaultW, recDefaultH
 	if st == capOK && img != nil {
-		w, h = img.Bounds().Dx(), img.Bounds().Dy()
+		w, h = img.Bounds().Dx(), img.Bounds().Dy() // o vídeo tem o tamanho da janela do TS
 	}
-	w = max(w, recMinW)
-	w, h = (w+1)&^1, (h+1)&^1
-	barH := recBarLines*fontH + 12
-	canvas := image.NewRGBA(image.Rect(0, 0, w, h+barH))
+	canvas := image.NewRGBA(image.Rect(0, 0, w, h))
+	diff := newFrameDiff(w, h)
 
 	part, total := 1, int64(0)
 	var avi *aviWriter
@@ -510,7 +551,6 @@ func (r *Recorder) loop(s *recSession) {
 	t0 := time.Now()
 	written := 0 // quadros já gravados neste arquivo
 	partStart := 0
-	var lastHash uint64
 	var buf bytes.Buffer
 	lastState := capOK
 	if st != capOK {
@@ -553,11 +593,8 @@ func (r *Recorder) loop(s *recSession) {
 				capElevated: "O TeamSpeak está como administrador: abra o Next TS como administrador para gravar."}[st]
 			r.mu.Unlock()
 		}
-		r.compose(canvas, h, img, st, s)
+		r.compose(canvas, img, st)
 
-		hs := fnv.New64a()
-		hs.Write(canvas.Pix)
-		sum := hs.Sum64()
 		target := int(time.Since(t0)/recFrame) - partStart // quadros que já deviam existir
 		var err error
 		for written < target && err == nil && written > 0 {
@@ -565,16 +602,15 @@ func (r *Recorder) loop(s *recSession) {
 			written++
 		}
 		if err == nil {
-			if written == 0 || sum != lastHash {
+			if diff.need(canvas.Pix, time.Now(), written == 0) {
 				buf.Reset()
 				if err = jpeg.Encode(&buf, canvas, &jpeg.Options{Quality: recJPEGQ}); err == nil {
 					err = avi.frame(buf.Bytes())
 				}
 			} else {
-				err = avi.frame(nil)
+				err = avi.frame(nil) // nada mudou (ou só o que se mexe sozinho): repete
 			}
 			written++
-			lastHash = sum
 		}
 		if err == nil && time.Since(lastPatch) > 2*time.Second {
 			err = avi.patch()
@@ -666,71 +702,36 @@ func fmtMB(b int64) string {
 }
 
 var (
-	colBar    = color.RGBA{18, 16, 13, 255}
-	colLine   = color.RGBA{138, 106, 42, 255}
 	colGold   = color.RGBA{243, 213, 138, 255}
-	colText   = color.RGBA{232, 227, 216, 255}
 	colMuted  = color.RGBA{163, 154, 137, 255}
-	colOK     = color.RGBA{111, 227, 106, 255}
-	colWarn   = color.RGBA{255, 207, 90, 255}
-	colErr    = color.RGBA{255, 107, 94, 255}
-	colBot    = color.RGBA{255, 224, 102, 255}
-	colInfo   = color.RGBA{201, 226, 255, 255}
-	colRec    = color.RGBA{230, 50, 40, 255}
 	colScreen = color.RGBA{30, 30, 34, 255}
 )
 
-// compose monta o quadro: imagem do TS em cima (altura h) e a faixa embaixo.
-func (r *Recorder) compose(canvas *image.RGBA, h int, img *image.RGBA, st capState, s *recSession) {
-	w := canvas.Bounds().Dx()
-	top := image.Rect(0, 0, w, h)
-	fillRect(canvas, top, colScreen)
+// compose monta o quadro: só a imagem da janela do TS, ou um aviso no lugar dela.
+func (r *Recorder) compose(canvas *image.RGBA, img *image.RGBA, st capState) {
 	if st == capOK && img != nil {
-		fitInto(canvas, top, img)
-	} else {
-		msg := map[capState][]string{
-			capMinimized: {"TeamSpeak minimizado", "Não dá para gravar a janela enquanto ela estiver minimizada.", "O monitoramento continua normal."},
-			capNotFound:  {"Janela do TeamSpeak não encontrada", "Abra o TeamSpeak (sem minimizar) para aparecer aqui.", "O monitoramento continua normal."},
-			capFailed:    {"Não consegui copiar a janela do TeamSpeak", "Vou continuar tentando.", ""},
-			capBlack:     {"A imagem do TeamSpeak veio toda preta", "Achei a janela, mas o Windows entregou a imagem preta.", "O monitoramento continua normal."},
-			capElevated:  {"TeamSpeak aberto como administrador", "O Windows não deixa copiar a janela. Abra o Next TS como administrador.", "O monitoramento continua normal."},
-		}[st]
-		y := h/2 - 2*fontH
-		for i, ln := range msg {
-			sc, c := 1, colMuted
-			if i == 0 {
-				sc, c = 2, colGold
-			}
-			drawText(canvas, (w-textWidth(ln, sc))/2, y, ln, c, sc)
-			y += fontH*sc + 6
-		}
+		fillWith(canvas, img)
+		return
 	}
-	// Faixa: relógio do PC + plano, e os últimos acontecimentos.
-	bar := image.Rect(0, h, w, canvas.Bounds().Dy())
-	fillRect(canvas, bar, colBar)
-	fillRect(canvas, image.Rect(0, h, w, h+2), colLine)
-	r.mu.Lock()
-	header := s.header
-	events := append([]recEvent(nil), s.events...)
-	r.mu.Unlock()
-	t := now()
-	y := h + 6
-	x := 8
-	fillRect(canvas, image.Rect(x, y+5, x+10, y+15), colRec) // fixa: piscar dobraria o tamanho do vídeo
-	x = drawText(canvas, x+16, y, "REC", colRec, 1)
-	x = drawText(canvas, x+12, y, t.Format("02/01/2006 15:04:05"), colGold, 1)
-	drawText(canvas, x+12, y, "· "+header, colText, 1)
-	for i := 0; i < recBarLines-1; i++ {
-		y += fontH
-		if i >= len(events) {
-			continue
+	w, h := canvas.Bounds().Dx(), canvas.Bounds().Dy()
+	fillRect(canvas, canvas.Bounds(), colScreen)
+	msg := map[capState][]string{
+		capMinimized: {"TeamSpeak minimizado", "Não dá para gravar a janela enquanto ela estiver minimizada.", "O monitoramento continua normal."},
+		capNotFound:  {"Janela do TeamSpeak não encontrada", "Abra o TeamSpeak (sem minimizar) para aparecer aqui.", "O monitoramento continua normal."},
+		capFailed:    {"Não consegui copiar a janela do TeamSpeak", "Vou continuar tentando.", ""},
+		capBlack:     {"A imagem do TeamSpeak veio toda preta", "Achei a janela, mas o Windows entregou a imagem preta.", "O monitoramento continua normal."},
+		capElevated:  {"TeamSpeak aberto como administrador", "O Windows não deixa copiar a janela. Abra o Next TS como administrador.", "O monitoramento continua normal."},
+	}[st]
+	y := h/2 - 2*fontH
+	for i, ln := range msg {
+		sc, c := 1, colMuted
+		if i == 0 {
+			sc, c = 2, colGold
 		}
-		e := events[i]
-		c := map[string]color.RGBA{"ok": colOK, "warn": colWarn, "err": colErr, "bot": colBot, "info": colInfo}[e.kind]
-		if c == (color.RGBA{}) {
-			c = colText
+		if textWidth(ln, sc) > w { // janela pequena: letra menor
+			sc = 1
 		}
-		x := drawText(canvas, 8, y, e.time, colMuted, 1)
-		drawText(canvas, x+10, y, fitText(e.text, (w-x-18)/fontW), c, 1)
+		drawText(canvas, max(0, (w-textWidth(ln, sc))/2), y, ln, c, sc)
+		y += fontH*sc + 6
 	}
 }

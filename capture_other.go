@@ -7,7 +7,9 @@ package main
 // NEXTTS_FAKE_TS aponta para um arquivo de texto:
 //   - "min"  = TS minimizado;
 //   - "none" = TS fechado;
-//   - outro texto = desenha uma janela com essas linhas (ex.: o chat com o bot).
+//   - outro texto = desenha uma janela com essas linhas (ex.: o chat com o bot);
+//     uma linha "ROLANDO: texto" vira um aviso que passa rolando na barra de baixo
+//     (como o "Announcement" do TS de verdade).
 // Sem a variável, age como se o TS não estivesse aberto.
 
 import (
@@ -15,6 +17,7 @@ import (
 	"image/color"
 	"os"
 	"strings"
+	"time"
 )
 
 func captureTS() (*image.RGBA, capState) {
@@ -40,6 +43,11 @@ func captureTS() (*image.RGBA, capState) {
 	fillRect(img, image.Rect(0, 400, 1000, 402), color.RGBA{150, 150, 160, 255})
 	y := 410
 	for _, ln := range strings.Split(text, "\n") {
+		if rest, ok := strings.CutPrefix(ln, "ROLANDO: "); ok {
+			x := 1000 - int(time.Now().UnixMilli()/20%1600) // anda 10 pontos a cada 0,2 s
+			drawText(img, x, 615, rest, color.RGBA{20, 20, 30, 255}, 1)
+			continue
+		}
 		drawText(img, 12, y, ln, color.RGBA{20, 20, 30, 255}, 1)
 		y += fontH + 2
 	}

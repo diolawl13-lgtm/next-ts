@@ -129,9 +129,6 @@ func (a *App) addLog(kind, format string, args ...any) {
 		a.log = a.log[len(a.log)-logLimit:]
 	}
 	fileLog("[%s] %s", kind, e.Text)
-	if a.rec != nil {
-		a.rec.Event(kind, e.Time, e.Text)
-	}
 }
 
 func (a *App) Log(kind, format string, args ...any) {
@@ -635,21 +632,7 @@ func (a *App) Start(p StartParams) error {
 		extra += " MODO TESTE: não vai enviar nada."
 	}
 	if p.Record {
-		hdr := "Plano A " + code
-		if codeB != "" {
-			hdr += " · Plano B " + codeB
-		}
-		if win.On {
-			hdr += " · janela " + win.Text
-		}
-		if p.WaitGiveUp {
-			hdr += " · espera o next desistir"
-		}
-		hdr += " · comando para " + rp.botName
-		if p.TestMode {
-			hdr += " · MODO TESTE"
-		}
-		if file, err := a.rec.Begin(code, hdr, p.TestMode); err != nil {
+		if file, err := a.rec.Begin(code, p.TestMode); err != nil {
 			a.addLog("warn", "Não consegui começar a gravação (%s). O monitoramento continua, sem gravar.", err.Error())
 		} else {
 			a.mon.Record = true

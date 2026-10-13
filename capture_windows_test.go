@@ -215,16 +215,15 @@ func TestCaptureJanelaDoTS(t *testing.T) {
 	// Gravação de ponta a ponta com a captura de verdade.
 	dir := t.TempDir()
 	rec := NewRecorder(dir, func(kind, text string) { t.Log(kind, text) })
-	file, err := rec.Begin("C1", "teste no Windows", false)
+	file, err := rec.Begin("C1", false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rec.Event("ok", "20:15:03", `ENVIADO "!next C1" para x3tBot`)
 	time.Sleep(1200 * time.Millisecond)
 	rec.End(0)
 	rec.Close()
 	in := readAVI(t, file)
-	if in.totalFrames < 4 || in.w != recMinW || in.h != 400+recBarLines*fontH+12 {
+	if in.totalFrames < 4 || in.w != 640 || in.h != 400 { // só a janela do TS, do tamanho dela
 		t.Fatalf("vídeo: %d quadros, %dx%d", in.totalFrames, in.w, in.h)
 	}
 

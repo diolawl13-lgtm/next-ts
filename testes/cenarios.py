@@ -1431,8 +1431,7 @@ def t58_gravacao_do_envio(app):
     assert len(vids) == 1 and re.search(r"\d{4}-\d\d-\d\d_\d\d-\d\d-\d\d_C1\.avi$", vids[0]), vids
     dur, st = probe(vids[0])
     assert 12 <= dur <= 17, f"duração {dur}"
-    assert st["pts"][-1] >= dur - 1.5, (st["pts"][-5:], dur)  # tem imagem até o fim (relógio da faixa muda)
-    assert st["width"] == 1000 and st["height"] == 640 + 3 * 20 + 12, st
+    assert st["width"] == 1000 and st["height"] == 640, st  # só a janela do TS (sem faixa nem bordas)
     assert os.path.getsize(vids[0]) < 3_000_000, os.path.getsize(vids[0])  # quadros iguais não ocupam espaço
     assert app.state()["rec"]["last"] == os.path.basename(vids[0])
     if PRINTS:
@@ -1531,6 +1530,31 @@ def t63_nova_gravacao_nao_apaga_a_anterior(app):
     assert len(vids) == 2, vids
     for v in vids:
         probe(v)
+
+
+@scenario
+def t77_aviso_rolando_nao_enche_o_video(app):
+    # O TS de verdade tem um aviso que passa rolando na barra de baixo. Ele não pode fazer
+    # gravar imagem nova a cada 0,2 s; uma mensagem nova no chat tem que entrar na hora.
+    connected(app)
+    mock.set_desc(desc(*OUTRAS))
+    app.set_tswin("Chat privado com x3tBot Kalibra\nROLANDO: Announcement - Start your own Community Server")
+    t0 = time.time()
+    app.start("C1", rec=True)
+    time.sleep(6)
+    chat_at = time.time() - t0
+    app.set_tswin("Chat privado com x3tBot Kalibra\n<20:15:03> \"Real Calvon\": !next C1\n"
+                  "ROLANDO: Announcement - Start your own Community Server")
+    time.sleep(2)
+    app.api("stop", {})
+    assert wait(lambda: not app.state()["rec"]["on"], 6)
+    dur, st = probe(app.videos()[0])
+    pts = st["pts"]
+    print(f"    imagens gravadas: {len(pts)} em {dur:.1f} s; mensagem do chat aos {chat_at:.1f} s; tempos: {pts}")
+    assert len(pts) <= dur * 5 * 0.4, f"gravou imagem nova demais por causa do aviso rolando: {len(pts)} em {dur} s"
+    assert any(chat_at - 0.3 <= p <= chat_at + 0.8 for p in pts), f"a mensagem do chat não entrou na hora ({chat_at:.1f} s): {pts}"
+    gaps = [b - a for a, b in zip(pts, pts[1:])]
+    assert max(gaps) <= 2.3, f"o aviso rolando ficou parado mais de 2 s no vídeo: {gaps}"
 
 
 print()

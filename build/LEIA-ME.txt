@@ -1,5 +1,20 @@
-NEXT TS 1.4.2 - COMO USAR
+NEXT TS 1.4.3 - COMO USAR
 ==========================
+
+NOVIDADES DA 1.4.3
+------------------
+- O vídeo agora mostra SÓ a janela do TeamSpeak, do tamanho exato dela:
+  sem a faixa preta embaixo (relógio, REC e acontecimentos) e sem bordas.
+  O horário e o "ENVIADO" continuam no Histórico da janelinha e no
+  registro.txt (e o próprio chat do TS mostra a hora das mensagens).
+- Vídeo bem menor: o aviso que passa rolando na barra de baixo do TS
+  ("Announcement - ...") fazia gravar imagem nova o tempo todo (uns 6 a
+  7 GB por hora numa tela grande). Agora as partes que se mexem sozinhas
+  aparecem atualizadas a cada 2 segundos; qualquer outra mudança (chat,
+  lista) entra na hora. Fica por volta de 0,6 a 0,7 GB por hora numa tela
+  grande como a sua.
+- Se o TS mudar de tamanho no meio da gravação, a imagem é ajustada ao
+  tamanho do começo.
 
 NOVIDADES DA 1.4.2
 ------------------
@@ -61,17 +76,19 @@ NOVIDADES DA 1.4.0
     segundos depois de enviar (para pegar a resposta do bot). Também grava
     no Modo teste. Se você clicar em Parar, ou o plano falhar, termina 2
     segundos depois.
-  - Embaixo da imagem do TS vai uma faixa com o relógio do PC e os últimos
-    acontecimentos, por exemplo: 'ENVIADO "!next C1" para x3tBot'.
+  - (Na 1.4.3 a faixa embaixo do vídeo foi tirada: o vídeo mostra só a
+    janela do TS.)
   - Os vídeos ficam em  %LOCALAPPDATA%\NextTS\gravacoes  e NUNCA são
     apagados pelo app. Use o botão "Abrir pasta das gravações".
     Nome do arquivo: data_hora_código.avi (ex.: 2026-10-13_20-15-03_C1.avi;
     no Modo teste termina em "_teste").
   - Formato .avi. Abre no VLC (recomendado, é grátis). Se o player do
     Windows não abrir, use o VLC.
-  - Tamanho: quadros iguais não são gravados de novo, então costuma dar
-    algumas centenas de MB por hora de espera (depende do tamanho da
-    janela do TS). Acima de 1 GB, ele continua num arquivo "_parte2".
+  - Tamanho: imagens iguais não são gravadas de novo, e o que se mexe
+    sozinho (como o aviso rolando na barra do TS) só é atualizado a cada
+    2 segundos. Costuma dar algumas centenas de MB por hora de espera
+    (depende do tamanho da janela do TS). Acima de 1 GB, ele continua num
+    arquivo "_parte2".
   - PARA A MENSAGEM APARECER NO VÍDEO: antes de clicar em Iniciar, deixe
     aberto e selecionado no TeamSpeak o CHAT PRIVADO COM O BOT (x3tBot ou
     MissClick Bot Test). O "!next" sai do seu TS, com o seu nome, e aparece
@@ -258,7 +275,7 @@ Os arquivos do app ficam em:  %LOCALAPPDATA%\NextTS
 Lá tem o "registro.txt" com o que o app fez. Ele NÃO contém sua chave.
 Se precisar de ajuda, mande esse arquivo.
 
-Letras da faixa do vídeo: fonte DejaVu Sans Mono (licença livre).
+Letras dos avisos do vídeo: fonte DejaVu Sans Mono (licença livre).
 
 A pasta "codigo-fonte" não é necessária para usar o app. Ela serve para
 quem for fazer ajustes no futuro.
