@@ -156,7 +156,7 @@ RESULTS = []
 # Cenários que precisam da conexão automática desligada (o app só conecta quando pedido).
 AUTO = {"t25_reconectar_sem_colar_chave": "1h"}
 # Cenários com relógio simulado (hora do "Windows" para o app).
-CLOCK = {"t65": "18:30:00", "t52": "18:30:00", "t40": "18:30:00", "t41": "18:30:00", "t42": "18:30:00", "t43": "22:30:57", "t44": "23:00:00",
+CLOCK = {"t71": "19:26:00", "t72": "18:30:00", "t65": "18:30:00", "t52": "18:30:00", "t40": "18:30:00", "t41": "18:30:00", "t42": "18:30:00", "t43": "22:30:57", "t44": "23:00:00",
          "t45": "23:50:00", "t46": "18:30:20", "t47": "18:30:00", "t16": "18:30:00", "t18": "18:30:00"}
 
 
@@ -222,30 +222,24 @@ def t02_ts_fechado(app):
 
 
 @scenario
-def t03_quem_ja_estava_nao_pega(app):
-    # Ao iniciar, Kira já está na hunt e ninguém no next: isso o app NÃO pega.
+def t03_quem_ja_estava_sem_next_pega(app):
+    # 1.4.2 ("sempre pegar"): Kira já está na hunt ao Iniciar e ninguém no next: pega na hora.
     connected(app)
     mock.set_desc(desc(OCUP0, *OUTRAS))
+    t = time.time()
     st, r = app.start("c1")
     assert st == 200, r
-    time.sleep(4)
-    assert not mock.sent, "pegou o next de quem já estava na hunt ao iniciar"
-    assert "não pego" in app.mon()["status"], app.mon()["status"]
-    # Kira sai e o próximo (Lord Calvon) entra, sem ninguém no next: agora pega.
-    t = time.time()
-    entra(who="Lord Calvon", t="02:30")
-    assert wait(lambda: mock.sent, 5), "não pegou quando alguém entrou"
+    assert wait(lambda: mock.sent, 5), "não pegou quem já estava na hunt sem next"
     dt = mock.sent[0][0] - t
-    assert 0.95 <= dt <= 2.7, f"atraso fora do esperado: {dt:.2f}s"
+    assert 0.95 <= dt <= 2.9, f"atraso fora do esperado: {dt:.2f}s"
     assert mock.sent[0][1] == 7 and mock.sent[0][2] == "!next C1", mock.sent
+    assert any("Kira Zinha já está caçando em C1 (Plano A) e ninguém está no next" in x for x in logs(app)), logs(app)
     assert wait(lambda: any("respondeu" in x for x in logs(app)), 2), "resposta do bot não apareceu"
     s = app.mon()
     assert not s["running"] and s["phase"] == "sent", s
     time.sleep(3)
     assert len(mock.sent) == 1, "enviou mais de uma vez"
     assert not any("Real Calvon respondeu" in x for x in logs(app)), "mostrou a própria mensagem como resposta"
-
-
 @scenario
 def t04_livre_nunca_envia_depois_alguem_entra(app):
     connected(app)
@@ -306,7 +300,7 @@ def t06_pegaram_next_na_espera_vai_pro_B(app):
 @scenario
 def t07_nao_volta_para_o_A(app):
     connected(app)
-    d7 = L("D7", "01:00", "Ja Estava", resp="DT")
+    d7 = L("D7", "01:00", "Ja Estava", resp="DT", nxt=["Alguem"])  # já caçando, com next: não pega
     mock.set_desc(desc(d7, *OUTRAS))
     app.start("C1", "D7")
     time.sleep(1)
@@ -314,12 +308,10 @@ def t07_nao_volta_para_o_A(app):
     assert wait(lambda: app.mon()["plan"] == "B", 3)
     mock.set_desc(desc(L(who="Outro Cara"), d7, *OUTRAS))   # A abre de novo: não pode mais pegar o A
     time.sleep(3.5)
-    assert not mock.sent, "voltou para o Plano A ou pegou quem já estava no B"
+    assert not mock.sent, "voltou para o Plano A ou pegou quem já estava no B com next"
     mock.set_desc(desc(L(who="Outro Cara"), L("D7", "02:00", "Novo Hunter", resp="DT"), *OUTRAS))
     assert wait(lambda: mock.sent, 5)
     assert mock.sent[0][2] == "!next D7"
-
-
 @scenario
 def t08_modo_teste(app):
     connected(app)
@@ -838,17 +830,15 @@ def t37_respawn_livre_na_espera_nao_falha(app):
 def t38_mesmo_hunter_renova_conta_como_entrada(app):
     # O tempo do mesmo caçador pulou para cima (fez claim de novo): é uma hunt nova.
     connected(app)
-    mock.set_desc(desc(L(t="00:05"), *OUTRAS))
+    mock.set_desc(desc(L(t="00:05", nxt=["Fulano"]), *OUTRAS))  # já caçando, com next: não pega
     app.start("C1")
     time.sleep(2)
     assert not mock.sent
-    mock.set_desc(desc(L(t="00:04"), *OUTRAS))  # tempo só diminuiu: nada
+    mock.set_desc(desc(L(t="00:04", nxt=["Fulano"]), *OUTRAS))  # tempo só diminuiu: nada
     time.sleep(1.5)
-    assert not mock.sent
-    mock.set_desc(desc(L(t="02:30"), *OUTRAS))
+    assert not mock.sent and app.mon()["running"] and app.mon()["phase"] != "failed", app.mon()
+    mock.set_desc(desc(L(t="02:30"), *OUTRAS))  # renovou (e o Fulano saiu da fila)
     assert wait(lambda: mock.sent, 5), "não pegou quando o caçador renovou"
-
-
 @scenario
 def t39_leitura_ruim_na_espera_nao_engana(app):
     # Linha estranha na hora de enviar: só envia se a conferência final der certo.
@@ -979,21 +969,23 @@ def t47_janela_sem_tempo_na_linha_nao_envia(app):
 @scenario
 def t48_linha_pisca_nao_conta_como_entrada(app):
     # A linha do C1 some por um instante e volta com a mesma pessoa: não é entrada.
+    # (Se fosse, "entrou já com next" faria o plano falhar.)
     connected(app)
-    mock.set_desc(desc(OCUP0, *OUTRAS))
+    mock.set_desc(desc(OCUP1, *OUTRAS))
     app.start("C1")
     time.sleep(1.5)
     mock.set_desc(desc(*OUTRAS))
     time.sleep(0.8)
-    mock.set_desc(desc(OCUP0, *OUTRAS))
+    mock.set_desc(desc(OCUP1, *OUTRAS))
     time.sleep(3.5)
-    assert not mock.sent, "pegou o next de quem já estava (a linha só piscou)"
+    m = app.mon()
+    assert not mock.sent and m["running"] and m["phase"] != "failed", m
+    assert not any("entrou" in x for x in logs(app)), logs(app)
     # Mas se ela sai e entra outra pessoa, aí pega.
     mock.set_desc(desc(*OUTRAS))
     time.sleep(0.8)
     entra(who="Gente Nova")
     assert wait(lambda: mock.sent, 5)
-
 
 # ---------------------------------------------------------------- 1.4: esperar o next desistir
 
@@ -1106,18 +1098,18 @@ def t53_pegaram_next_no_atraso_volta_a_esperar(app):
 
 
 @scenario
-def t54_quem_ja_estava_com_next_nao_pega(app):
-    # Kira já estava na hunt (com next) antes de Iniciar: mesmo o next desistindo, não pega.
+def t54_quem_ja_estava_com_next_desiste_pega(app):
+    # 1.4.2: Kira já estava na hunt (com next) ao Iniciar. Com "esperar o next desistir",
+    # espera o next dela desistir e então pega.
     connected(app)
     mock.set_desc(desc(OCUP1, *OUTRAS))
     app.start("C1", wait=True)
+    assert wait(lambda: app.mon()["waitingFor"] == "Lord Calvon", 3), app.mon()
     time.sleep(1.5)
-    mock.set_desc(desc(OCUP0, *OUTRAS))
-    time.sleep(3)
-    assert not mock.sent, "pegou o next da hunt que já existia antes de Iniciar"
-    assert app.mon()["running"] and app.mon()["waitingFor"] == ""
-
-
+    assert not mock.sent
+    mock.set_desc(desc(OCUP0, *OUTRAS))  # Lord Calvon desistiu
+    assert wait(lambda: mock.sent, 5), "não pegou quando o next de quem já estava desistiu"
+    assert mock.sent[0][2] == "!next C1"
 @scenario
 def t55_livre_na_espera_e_entra_outra_pessoa(app):
     connected(app)
@@ -1206,18 +1198,18 @@ def t65_tempo_com_espacos_e_janela_envia(app):
 @scenario
 def t66_tempo_com_espacos_nao_parece_entrada_a_cada_minuto(app):
     # O tempo mudando ([ 02:28 ] → [ 02:27 ]) não pode parecer que alguém entrou de novo.
+    # (Com alguém no next, uma "entrada" falsa faria o plano falhar.)
     connected(app)
-    mock.set_desc(desc(L("C1", "02:28", "Lord Tenchi", sp=True), *OUTRAS))
+    mock.set_desc(desc(L("C1", "02:28", "Lord Tenchi", nxt=["Real Calvon"], sp=True), *OUTRAS))
     app.start("C1")
     time.sleep(1.5)
     for t in ("02:27", "02:26", "02:25"):
-        mock.set_desc(desc(L("C1", t, "Lord Tenchi", sp=True), *OUTRAS))
+        mock.set_desc(desc(L("C1", t, "Lord Tenchi", nxt=["Real Calvon"], sp=True), *OUTRAS))
         time.sleep(1.2)
-    assert not mock.sent, "pegou o next de quem já estava na hunt (o tempo mudou e pareceu entrada)"
+    m = app.mon()
+    assert not mock.sent and m["running"] and m["phase"] == "watching", m
     assert not any("entrou" in x for x in logs(app)), logs(app)
-    assert app.mon()["endsAt"], app.mon()  # leu o tempo (mostra a hora que sai)
-
-
+    assert m["endsAt"], m  # leu o tempo (mostra a hora que sai)
 @scenario
 def t67_aceitar_nao_e_entrada_nem_falha(app):
     # Kira caçando com Lord Calvon no next (já estava assim). Kira sai: Lord Calvon "Aceitar".
@@ -1286,6 +1278,96 @@ def t70_aceitar_durante_o_atraso_cancela(app):
     assert any("Envio cancelado" in x and "aceitando" in x for x in logs(app)), logs(app)
     mock.set_desc(desc(L("C1", "02:00", "Outro Cara", sp=True), *OUTRAS))
     assert wait(lambda: mock.sent, 5)
+
+
+# ---------------------------------------------------------------- 1.4.2: pega quem JÁ está caçando
+
+@scenario
+def t71_ja_cacando_dentro_da_janela_pega(app):
+    # O caso de 13/10: 19:26, Maarpz no Y11 com [ 00:35 ] (sai às 20:01), janela 20:00–22:30.
+    connected(app)
+    y11 = "Y11 - [ 00:35 ] Norcferatu Catacombs Direita (Tier 1): Maarpz"
+    mock.set_desc(desc(y11, *OUTRAS))
+    st, r = app.start("Y11", win=("20:00", "22:30"), test=True, wait=True)
+    assert st == 200, r
+    assert wait(lambda: app.mon()["phase"] == "tested", 5), app.mon()
+    lg = " ".join(logs(app))
+    assert "Maarpz já está caçando em Y11 (Plano A) e ninguém está no next" in lg, lg
+    assert "Agora 19:26 + falta 00:35 = sua hunt começaria às 20:01 → dentro da janela" in lg, lg
+    assert "teria enviado \"!next Y11\"" in lg, lg
+    assert not mock.sent
+
+
+@scenario
+def t72_ja_cacando_fora_da_janela_espera_a_proxima(app):
+    # 18:30 + [01:00] = 19:30: fora. Não falha: espera a próxima pessoa (20:15 → pega).
+    connected(app)
+    mock.set_desc(desc(L(t="01:00"), *OUTRAS))
+    app.start("C1", "D7", win=("20:00", "22:30"))
+    time.sleep(2.5)
+    m = app.mon()
+    assert not mock.sent and m["running"] and m["plan"] == "A" and m["phase"] == "watching", m
+    assert any("19:30" in x and "fora da janela" in x and "Esse eu não pego" in x for x in logs(app)), logs(app)
+    entra(who="Lord Calvon", t="01:45")
+    assert wait(lambda: mock.sent, 5), logs(app)
+    assert mock.sent[0][2] == "!next C1"
+
+
+@scenario
+def t73_ja_cacando_com_next_espera_a_proxima(app):
+    # Sem a opção de esperar: hunt que já existe com next não pega e não falha.
+    connected(app)
+    mock.set_desc(desc(OCUP1, *OUTRAS))
+    app.start("C1", "D7")
+    time.sleep(2.5)
+    m = app.mon()
+    assert not mock.sent and m["running"] and m["plan"] == "A", m
+    assert any("Lord Calvon já está no next. Esse eu não pego" in x for x in logs(app)), logs(app)
+    entra(who="Lord Calvon", t="02:00")  # Kira saiu, Lord Calvon entrou sem ninguém no next
+    assert wait(lambda: mock.sent, 5)
+    assert mock.sent[0][2] == "!next C1"
+
+
+@scenario
+def t74_hunt_do_comeco_next_nao_desiste_nao_falha(app):
+    # Com a opção: o next da hunt do começo não desiste e entra na hunt. Não falha:
+    # vira uma entrada normal (entrou sem ninguém no next → pega).
+    connected(app)
+    mock.set_desc(desc(OCUP1, *OUTRAS))
+    app.start("C1", "D7", wait=True)
+    assert wait(lambda: app.mon()["waitingFor"] == "Lord Calvon", 3), app.mon()
+    entra(who="Lord Calvon", t="02:00")
+    assert wait(lambda: mock.sent, 5), app.mon()
+    assert mock.sent[0][2] == "!next C1" and app.mon()["plan"] == "A"
+
+
+@scenario
+def t75_troca_para_o_B_pega_quem_ja_esta(app):
+    connected(app)
+    d7 = L("D7", "01:00", "Ja Estava", resp="DT")
+    mock.set_desc(desc(d7, L(nxt=["X"]), *OUTRAS))  # C1 já com next: A não pega (espera)
+    app.start("C1", "D7")
+    time.sleep(1.2)
+    assert not mock.sent
+    mock.set_desc(desc(d7, L(who="Novo", nxt=["Apressado"]), *OUTRAS))  # alguém entra no C1 já com next: A falha
+    assert wait(lambda: mock.sent, 5), app.mon()
+    assert mock.sent[0][2] == "!next D7", mock.sent
+    assert any("Ja Estava já está caçando em D7 (Plano B)" in x for x in logs(app)), logs(app)
+
+
+@scenario
+def t76_hunt_do_comeco_pegaram_next_no_atraso_nao_falha(app):
+    connected(app)
+    mock.set_desc(desc(OCUP0, *OUTRAS))
+    app.start("C1", "D7")
+    assert wait(lambda: app.mon()["phase"] == "pending", 2), app.mon()
+    mock.set_desc(desc(OCUP1, *OUTRAS))  # pegaram o next durante o atraso
+    time.sleep(2.5)
+    m = app.mon()
+    assert not mock.sent and m["running"] and m["plan"] == "A", m
+    entra(who="Lord Calvon", t="02:00")
+    assert wait(lambda: mock.sent, 5)
+    assert mock.sent[0][2] == "!next C1"
 
 
 # ---------------------------------------------------------------- 1.4: gravação

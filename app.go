@@ -16,8 +16,10 @@ import (
 
 // Regras pedidas (versão 1.4):
 //   - verifica a lista a cada 0,5 s;
-//   - só pega o 1º next, e só quando ALGUÉM ENTRA na hunt (o que já estava lá
-//     quando você clicou em Iniciar não é pego);
+//   - só pega o 1º next. Ao Iniciar (e na troca para o Plano B), se já tiver alguém
+//     caçando sem ninguém no next e a conta der dentro da janela, pega na hora; se não
+//     der (fora da janela, ou já tem next), espera a próxima pessoa entrar, sem falhar.
+//     Depois, pega quando ALGUÉM ENTRA na hunt;
 //   - nunca envia com o respawn livre;
 //   - janela de início (opcional): hora atual + tempo que falta tem que cair na janela;
 //   - Plano A falhou (pegaram o next antes, ou o horário ficou fora da janela):
@@ -734,6 +736,9 @@ type planState struct {
 	// Quem acabou de "desistir". Se essa pessoa aparecer entrando na hunt logo depois
 	// (a lista mostrou um instante sem o next na troca), ela não desistiu de verdade.
 	gaveUp string
+	// "Bônus": a hunt que já existia quando o plano começou (Iniciar ou troca para o B).
+	// Perder essa hunt NÃO faz o plano falhar: só espera a próxima pessoa entrar.
+	waitBonus, gaveUpBonus, pendingBonus bool
 }
 
 // sameParty: a pessoa (ou dupla "A / B") que entrou na hunt é a mesma que estava no next.
@@ -844,13 +849,14 @@ func (a *App) run(ctx context.Context, p runParams) {
 		}
 	}
 	// startWait: a hunt `k` tem alguém no next; com a opção ligada, espero ele desistir.
-	startWait := func(st QueueState, k string) {
-		ps.waitKey, ps.waitNext = k, st.First
+	// bonus = é a hunt que já existia quando o plano começou.
+	startWait := func(st QueueState, k string, bonus bool) {
+		ps.waitKey, ps.waitNext, ps.waitBonus = k, st.First, bonus
 		a.update(p.id, func(m *MonitorView) { m.Status = waiting(st) })
 	}
 	// schedule: o 1º next está livre agora. Confere a janela e marca o envio (1 a 2 s).
-	// Devolve (acabou, reprocessar) como o step.
-	schedule := func(st QueueState, k, what string) (bool, bool) {
+	// Devolve (acabou, reprocessar) como o step. bonus = é a hunt que já existia.
+	schedule := func(st QueueState, k, what string, bonus bool) (bool, bool) {
 		t := now()
 		calc := ""
 		if st.HasTimer {
@@ -866,6 +872,11 @@ func (a *App) run(ctx context.Context, p runParams) {
 			if !p.win.Contains(start) {
 				c := calc + " → fora da janela " + p.win.Text
 				a.update(p.id, func(m *MonitorView) { m.Calc = c })
+				if bonus {
+					a.Log("info", "%s, mas %s. Esse eu não pego: espero a próxima pessoa entrar.", what, c)
+					a.update(p.id, func(m *MonitorView) { m.Status = waiting(st) })
+					return false, false
+				}
 				if fail(fmt.Sprintf("%s. %s.", what, c)) {
 					return true, false
 				}
@@ -879,6 +890,7 @@ func (a *App) run(ctx context.Context, p runParams) {
 		timerC = timer.C
 		fireTries = 0
 		entryKey = k
+		ps.pendingBonus = bonus
 		at := detectedAt.Add(d)
 		a.update(p.id, func(m *MonitorView) {
 			m.Phase, m.pendingAt, m.Calc = "pending", at, calc
@@ -890,6 +902,42 @@ func (a *App) run(ctx context.Context, p runParams) {
 		}
 		a.Log("info", "%s Enviando o 1º next em %s s...", msg, secs(d))
 		return false, false
+	}
+
+	// existing: quando o plano começa (Iniciar ou troca para o B), alguém JÁ está caçando.
+	// Sem ninguém no next e dentro da janela: pega na hora. Senão, não falha: espera a
+	// próxima pessoa entrar (ou, com a opção ligada, o next dessa hunt desistir).
+	existing := func(st QueueState, k string) (bool, bool) {
+		t := now()
+		who := Hunter(st)
+		skip := func(why string) (bool, bool) {
+			a.Log("info", "Plano %s (%s): %s já está caçando%s. Esse eu não pego: espero a próxima pessoa entrar.", letter(), ps.code, who, why)
+			a.update(p.id, func(m *MonitorView) { m.Status = waiting(st) })
+			return false, false
+		}
+		outside := ""
+		if p.win.On && st.HasTimer {
+			if start := t.Add(time.Duration(st.Remaining) * time.Minute); !p.win.Contains(start) {
+				outside = fmt.Sprintf("Agora %s + falta %s = sua hunt começaria às %s → fora da janela %s", t.Format("15:04"), FmtHM(st.Remaining), endsAt(st, t), p.win.Text)
+				a.update(p.id, func(m *MonitorView) { m.Calc = outside })
+			}
+		}
+		switch {
+		case outside != "":
+			if st.Count > 0 {
+				return skip(fmt.Sprintf(", com %s no next, e %s", st.First, outside))
+			}
+			return skip(", mas " + outside)
+		case st.Count > 0 && p.WaitGiveUp:
+			a.Log("info", "Plano %s (%s): %s já está caçando e %s está no next. Vou esperar o next desistir.", letter(), ps.code, who, st.First)
+			startWait(st, k, true)
+			return false, false
+		case st.Count > 0:
+			return skip(fmt.Sprintf(" e %s já está no next", st.First))
+		case p.win.On && !st.HasTimer:
+			return skip(", mas não consegui ler o tempo que falta na linha (sem ele não dá para conferir a janela)")
+		}
+		return schedule(st, k, fmt.Sprintf("%s já está caçando em %s (Plano %s) e ninguém está no next", who, ps.code, letter()), true)
 	}
 
 	// step trata uma leitura da lista para o plano atual. Devolve (acabou, reprocessar).
@@ -917,12 +965,13 @@ func (a *App) run(ctx context.Context, p runParams) {
 				return false, false
 			}
 			ps.baseSet, ps.lastKey, ps.lastRem, ps.lastHasTimer = true, k, st.Remaining, st.HasTimer
-			if st.Accepting {
+			switch {
+			case st.Accepting:
 				a.Log("info", "Plano %s (%s): ninguém caçando agora; %s está aceitando o respawn. Espero alguém entrar na hunt.", letter(), ps.code, st.First)
-			} else if st.Present {
-				a.Log("info", "Plano %s (%s): %s está na hunt agora; esse eu não pego. Espero a próxima pessoa entrar.", letter(), ps.code, Hunter(st))
-			} else {
+			case !st.Present:
 				a.Log("info", "Plano %s (%s): respawn livre agora. Espero alguém entrar na hunt.", letter(), ps.code)
+			default:
+				return existing(st, k)
 			}
 			a.update(p.id, func(m *MonitorView) { m.Status = waiting(st) })
 			return false, false
@@ -950,7 +999,10 @@ func (a *App) run(ctx context.Context, p runParams) {
 				stopTimer()
 				backToWatching()
 				a.Log("warn", "Envio cancelado: %s pegou o next antes de mim. Vou esperar o next desistir (Plano %s, %s).", st.First, letter(), ps.code)
-				startWait(st, entryKey)
+				startWait(st, entryKey, ps.pendingBonus)
+				return false, false
+			case st.Count > 0 && ps.pendingBonus:
+				cancelPending(st.First + " pegou o next antes de mim (era a hunt de quem já caçava no começo: não falho o plano).")
 				return false, false
 			case st.Count > 0:
 				if fail(st.First + " pegou o next antes de mim.") {
@@ -966,9 +1018,10 @@ func (a *App) run(ctx context.Context, p runParams) {
 		if ps.waitKey != "" {
 			if entered {
 				// Entrou alguém na hunt. Se foi quem estava no next, ele não desistiu: falhou.
-				who, nextWas := Hunter(st), ps.waitNext
-				ps.waitKey, ps.waitNext = "", ""
-				if sameParty(who, nextWas) {
+				// (Na hunt que já existia no começo, não falha: vira uma entrada normal.)
+				who, nextWas, bonus := Hunter(st), ps.waitNext, ps.waitBonus
+				ps.waitKey, ps.waitNext, ps.waitBonus = "", "", false
+				if sameParty(who, nextWas) && !bonus {
 					if fail(nextWas + " não desistiu do next e entrou na hunt.") {
 						return true, false
 					}
@@ -995,9 +1048,9 @@ func (a *App) run(ctx context.Context, p runParams) {
 					return false, false
 				}
 				// O next ficou vazio: desistiu!
-				ps.gaveUp = ps.waitNext
-				ps.waitKey, ps.waitNext = "", ""
-				return schedule(st, k, fmt.Sprintf("%s desistiu do next de %s (Plano %s)", ps.gaveUp, ps.code, letter()))
+				ps.gaveUp, ps.gaveUpBonus = ps.waitNext, ps.waitBonus
+				ps.waitKey, ps.waitNext, ps.waitBonus = "", "", false
+				return schedule(st, k, fmt.Sprintf("%s desistiu do next de %s (Plano %s)", ps.gaveUp, ps.code, letter()), ps.gaveUpBonus)
 			}
 		}
 		if !entered {
@@ -1008,7 +1061,7 @@ func (a *App) run(ctx context.Context, p runParams) {
 		hunter := Hunter(st)
 		if g := ps.gaveUp; g != "" {
 			ps.gaveUp = ""
-			if sameParty(hunter, g) {
+			if sameParty(hunter, g) && !ps.gaveUpBonus {
 				if fail(g + " não desistiu do next: entrou na hunt.") {
 					return true, false
 				}
@@ -1034,10 +1087,10 @@ func (a *App) run(ctx context.Context, p runParams) {
 				}
 			}
 			a.Log("info", "%s entrou em %s (Plano %s), mas %s já está no next. Vou esperar o next desistir.", hunter, ps.code, letter(), st.First)
-			startWait(st, k)
+			startWait(st, k, false)
 			return false, false
 		}
-		return schedule(st, k, fmt.Sprintf("%s entrou em %s (Plano %s)", hunter, ps.code, letter()))
+		return schedule(st, k, fmt.Sprintf("%s entrou em %s (Plano %s)", hunter, ps.code, letter()), false)
 	}
 
 	ticker := time.NewTicker(PollInterval)
@@ -1107,7 +1160,11 @@ func (a *App) run(ctx context.Context, p runParams) {
 			case st.Count > 0 && p.WaitGiveUp:
 				backToWatching()
 				a.Log("warn", "Envio cancelado: na conferência final %s já estava no next. Vou esperar o next desistir (Plano %s, %s).", st.First, letter(), ps.code)
-				startWait(st, entryKey)
+				startWait(st, entryKey, ps.pendingBonus)
+				continue
+			case st.Count > 0 && ps.pendingBonus:
+				backToWatching()
+				a.Log("warn", "Envio cancelado: na conferência final %s já estava no next (era a hunt de quem já caçava no começo: não falho o plano). Espero a próxima pessoa entrar.", st.First)
 				continue
 			case st.Count > 0:
 				if fail(st.First + " pegou o next antes de mim.") {

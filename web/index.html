@@ -379,7 +379,7 @@ select:disabled { cursor: default; }
   <label class="check"><input type="checkbox" id="testMode">
     <span>Modo teste
     <small>Faz tudo, mas não envia nada. Bom para conferir na primeira vez.</small></span></label>
-  <div class="rules">Só <b>1º next</b>. O app só pega quando <b>alguém entra na hunt</b> depois que você clica em Iniciar; quem já estava lá antes ele não pega. Com "esperar o next desistir", também pega quando o next de quem entrou sai da fila.</div>
+  <div class="rules">Só <b>1º next</b>. Ao clicar em Iniciar, se <b>já tiver alguém caçando sem ninguém no next</b> (e dentro da janela), ele pega na hora. Depois, pega quando <b>alguém entra na hunt</b>. Com "esperar o next desistir", também pega quando o next sai da fila.</div>
   <div class="preview" id="preview"></div>
 </section>
 
@@ -576,7 +576,7 @@ function renderForm() {
     pv.append(form.testMode ? "Modo teste: mostraria " : "Vai enviar ");
     const c = document.createElement("code"); c.textContent = "!next " + ci.c; pv.append(c);
     if (hasB) { pv.append(" (ou "); const c2 = document.createElement("code"); c2.textContent = "!next " + ciB.c; pv.append(c2, " no Plano B)"); }
-    pv.append(" para " + bn + ", uma única vez, quando alguém entrar na hunt" + (form.waitGiveUp ? " (se já tiver next, quando ele desistir)" : "") + (form.windowOn && !badWin ? " e a sua hunt for começar entre " + form.windowStart + " e " + form.windowEnd : "") + ".");
+    pv.append(" para " + bn + ", uma única vez, quando o 1º next estiver livre (já ao Iniciar ou quando alguém entrar na hunt" + (form.waitGiveUp ? "; se já tiver next, quando ele desistir" : "") + ")" + (form.windowOn && !badWin ? " e a sua hunt for começar entre " + form.windowStart + " e " + form.windowEnd : "") + ".");
     if (form.record) pv.append(" Grava vídeo da janela do TeamSpeak.");
   } else {
     pv.append(!bn ? "Escolha acima quem recebe o comando." : badB ? "Arrume o Plano B ou escolha \"Sem Plano B\"." : "Escolha o respawn do Plano A.");

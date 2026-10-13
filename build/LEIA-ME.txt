@@ -1,5 +1,22 @@
-NEXT TS 1.4.1 - COMO USAR
+NEXT TS 1.4.2 - COMO USAR
 ==========================
+
+NOVIDADES DA 1.4.2
+------------------
+- REGRA NOVA: ao clicar em Iniciar, se JÁ TIVER alguém caçando no respawn
+  e ninguém no next, o app pega na hora (se a conta "hora atual + tempo
+  que falta" cair dentro da janela). Exemplo: 19:26 + [ 00:35 ] = 20:01,
+  dentro de 20:00-22:30: manda.
+  - Se der fora da janela, ou se já tiver alguém no next, ele NÃO falha
+    o plano: espera a próxima pessoa entrar (como antes). Com "Esperar o
+    next desistir" ligado, espera o next dessa hunt desistir.
+  - Vale também para o Plano B, na hora da troca.
+- Gravação: agora o app tenta 3 jeitos de copiar a janela do TeamSpeak
+  (um deles pega direto da tela, só quando o TS está na frente) e escolhe
+  melhor qual é a janela principal do TS. O que acontecer fica anotado no
+  registro.txt. Se o TS estiver aberto como administrador, o app avisa:
+  nesse caso abra o Next TS como administrador também (botão direito >
+  "Executar como administrador").
 
 NOVIDADES DA 1.4.1 (correção importante)
 ----------------------------------------
@@ -203,7 +220,9 @@ USO NORMAL
 AS REGRAS DO APP
 ----------------
 - Lê a lista a cada 0,5 segundo.
-- Só 1º next, e só quando alguém ENTRA na hunt depois que você inicia.
+- Só 1º next. Ao Iniciar, se já tiver alguém caçando sem ninguém no next
+  (e dentro da janela), pega na hora. Depois, pega quando alguém ENTRA na
+  hunt.
 - Respawn livre (o código não aparece na lista): NUNCA envia nada.
 - Alguém entrou e já tem gente no next: o plano falhou. Com "Esperar o
   next desistir" ligado, ele espera o next sair da fila e então manda; se

@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-const Version = "1.4.1"
+const Version = "1.4.2"
 
 // Preset é um "atalho de claim": de onde ler (canal) e para quem mandar (bot).
 // Guarda o UID do bot (estável) e os nomes só para mostrar.

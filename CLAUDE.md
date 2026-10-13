@@ -1,6 +1,6 @@
 # Next TS — resumo completo do projeto (para continuar no Claude Code)
 
-> Junto com este resumo vai o arquivo **Next-TS-1.4.1.zip** (última versão). Dentro dele, a pasta `Next-TS/codigo-fonte` tem todo o código, os testes e as ferramentas de build.
+> Junto com este resumo vai o arquivo **Next-TS-1.4.2.zip** (última versão). Dentro dele, a pasta `Next-TS/codigo-fonte` tem todo o código, os testes e as ferramentas de build.
 
 ---
 
@@ -27,7 +27,8 @@ O **Next TS** fica de olho na lista de claimeds que o x3tBot publica na **descri
 - **A versão 1.0.1 (07/10/2026) foi a primeira versão funcional**, confirmada por mim no TeamSpeak real.
 - A **1.3.0 (09/10/2026)** funcionou perfeitamente no TS real (confirmado por mim em 13/10/2026).
 - A **1.4.0 (13/10/2026)** trouxe "esperar o next desistir" e gravação em vídeo.
-- A versão atual é a **1.4.1 (13/10/2026)**: corrige a leitura do formato novo do x3tBot de 13/10 (tempo com espaços `[ 01:45 ]` e o estado `Aceitar`). Testada no TS simulado e a parte Windows no Wine; ainda não testei no TS real.
+- A **1.4.1 (13/10/2026)** corrigiu a leitura do formato novo do x3tBot de 13/10 (tempo com espaços `[ 01:45 ]` e o estado `Aceitar`).
+- A versão atual é a **1.4.2 (13/10/2026)**: regra nova "pega quem já está caçando" e gravação mais robusta. No teste real da 1.4.1 (Modo teste), a gravação mostrou "Não consegui copiar a janela do TeamSpeak" (TS aberto na frente, sem administrador) e o app não pegou o Maarpz, que já estava no Y11 (era a regra 2 antiga). Testada no TS simulado e a parte Windows no Wine; ainda não testei no TS real.
 
 ---
 
@@ -73,10 +74,14 @@ R9 - [ Aceitar 00:03 ] Upper Roshamuul (Tier 1): Next: Alxoff — aguardando ace
 
 ---
 
-## 4. Regras atuais do app (versão 1.4.1, combinadas comigo)
+## 4. Regras atuais do app (versão 1.4.2, combinadas comigo)
 
 1. **Só 1º next.** Eu não posso mais pegar 2º next. A opção de 2º next e a opção "pegar logo se já estiver disponível" foram removidas.
-2. **O app só age quando ALGUÉM ENTRA na hunt** depois que eu clico em Iniciar. Quem já estava lá antes ele não pega (esse eu mesmo pego na mão).
+2. **Quem já está caçando ao Iniciar (mudou na 1.4.2, "sempre pegar"):** se já tiver alguém caçando e **ninguém no next**, e a conta der **dentro da janela** (ou a janela estiver desligada), o app pega **na hora** (atraso de 1 a 2 s + conferência). Exemplo do dia 13/10: 19:26 + `[ 00:35 ]` = 20:01, dentro de 20:00–22:30.
+   - Se der **fora da janela**, se **já tiver alguém no next**, ou se a linha não mostrar o tempo (com a janela ligada): **não falha** o plano, só espera a próxima pessoa entrar. Com "esperar o next desistir" ligado, espera o next dessa hunt desistir (e, se esse next entrar na hunt, conta como entrada normal, sem falhar).
+   - Se pegarem o next dessa hunt durante o atraso de 1 a 2 s: também não falha, espera a próxima.
+   - Depois disso, o app age quando **ALGUÉM ENTRA na hunt** (regras de sempre).
+   - Até a 1.4.1 a regra era o contrário: "quem já estava lá antes ele não pega".
 3. **Respawn livre: nunca envia nada.**
 4. **Janela de início** (opcional, caixinha "Monitorar janela de início"). Eu escolho o horário, ex.: das 20:00 às 22:30.
    - Quando alguém entra na hunt: **hora atual (relógio do Windows) + tempo que falta** = hora em que minha hunt começaria.
@@ -90,7 +95,7 @@ R9 - [ Aceitar 00:03 ] Upper Roshamuul (Tier 1): Next: Alxoff — aguardando ace
 5. **Plano A e Plano B** (o B é opcional; a janela é a mesma para os dois).
    - O Plano A **falha** quando alguém entra na hunt e já tem next (pegaram antes de mim), quando alguém pega o next durante a espera, ou quando o horário fica fora da janela.
    - A falhou: **passa para o B e NUNCA volta para o A.**
-   - O B segue as mesmas regras e também espera alguém entrar. Quem já estava no B na hora da troca não é pego.
+   - O B segue as mesmas regras. Na troca, quem **já está** caçando no B sem next (dentro da janela) é pego na hora, igual à regra 2.
    - B falhou: **o app para.**
    - Se A e B ficassem bons ao mesmo tempo, vale o A.
    - **Pega um next só, NUNCA dois.**
@@ -108,7 +113,7 @@ R9 - [ Aceitar 00:03 ] Upper Roshamuul (Tier 1): Next: Alxoff — aguardando ace
     - Alguém pega o next durante o atraso de 1 a 2 s: cancela o envio e volta a esperar esse next desistir.
     - Janela ligada: se a hunt já começaria fora da janela, falha na hora (nem espera). Na desistência, a conta é refeita.
     - Respawn ficou livre na espera: não é falha. Se entrar **outra** pessoa, é hunt nova (regras normais).
-    - Quem já estava na hunt antes de Iniciar continua não sendo pego, mesmo que o next dele desista.
+    - Hunt que já existia ao Iniciar, com next: espera esse next desistir e pega (regra 2). Se o next entrar na hunt, não falha: vira entrada normal.
 14. **Gravação em vídeo** (opcional, caixinha):
     - Grava **só a janela do TeamSpeak**, **5 quadros/s**, do Iniciar até **10 s depois de enviar** (ou do "teria enviado" no Modo teste). Parar/falha/janela encerrada: termina 2 s depois.
     - Embaixo da imagem do TS vai uma **faixa** com o relógio do PC e os 2 últimos acontecimentos (ex.: `ENVIADO "!next C1" para x3tBot`).
@@ -128,7 +133,7 @@ R9 - [ Aceitar 00:03 ] Upper Roshamuul (Tier 1): Next: Alxoff — aguardando ace
   - Comandos usados: `auth`, `use`, `whoami`, `serverconnectionhandlerlist`, `servervariable`, `clientvariable`, `channellist`, `clientlist -uid`, `channelvariable cid=X channel_description`, `sendtextmessage targetmode=1`, `clientnotifyregister` (para ver a resposta do bot).
   - O bot é achado pela **UID**, porque o número dele muda quando ele reconecta.
 - **Chave:** salva protegida pelo Windows (DPAPI). Dados em `%LOCALAPPDATA%\NextTS`: `preferencias.json`, `registro.txt` (log sem a chave), `instancia.json` e a pasta `gravacoes`.
-- **Gravação:** acha a janela do TS pelo programa (`ts3client_win64.exe`/`ts3client_win32.exe`) e copia a imagem com `PrintWindow(PW_RENDERFULLCONTENT)` (funciona com a janela coberta, não minimizada). O app se declara "DPI aware" para pegar o tamanho real da janela. Grava AVI com imagens JPEG (biblioteca padrão do Go); quadros repetidos viram "pedaços vazios" (o tempo do vídeo continua certo). A faixa usa letras da fonte DejaVu Sans Mono embutidas em `fonte_dados.go`.
+- **Gravação:** acha a janela do TS pelo programa (`ts3client_win64.exe`/`ts3client_win32.exe`): visível, sem dona, não é "janela de ferramenta", não está escondida (cloaked), pelo menos 200x150; a maior. Copia a imagem tentando 3 jeitos (lembra o que funcionou): `PrintWindow(PW_RENDERFULLCONTENT)`/`PrintWindow` (pega coberta), `GetWindowDC`+`BitBlt`, e direto da tela (só se a janela estiver visível na frente: 3 de 5 pontos com `WindowFromPoint`). Usa `CreateDIBSection`. Anota no `registro.txt` ("[gravação] ...") a janela escolhida, o jeito usado e os motivos das falhas. Detecta TS como administrador e Next TS não (aviso para abrir o Next TS como administrador). O app se declara "DPI aware" para pegar o tamanho real da janela. Grava AVI com imagens JPEG (biblioteca padrão do Go); quadros repetidos viram "pedaços vazios" (o tempo do vídeo continua certo). A faixa usa letras da fonte DejaVu Sans Mono embutidas em `fonte_dados.go`.
 - **Uma cópia só:** se abrir de novo, a cópia nova fecha (ou fecha a versão antiga, se for mais nova).
 - **Conecta sozinho:** se o TS abrir depois, o app conecta quando o TS estiver no servidor. Se a chave for recusada, para de tentar até eu colar outra.
 - **Escolha do canal:** prefere o que eu escolhi; depois, um canal que tenha a lista de verdade; depois, o nome "Claimeds". Canais de teste/erro/regras perdem pontos. Se o canal estiver sem lista, o app não deixa iniciar (já aconteceu de ele escolher "Claimed TEST", que estava vazio).
@@ -149,16 +154,16 @@ R9 - [ Aceitar 00:03 ] Upper Roshamuul (Tier 1): Next: Alxoff — aguardando ace
 | `fonte_dados.go` | Letras da faixa do vídeo (gerado por `build/gerar_fonte.py`) |
 | `window.go` | Janela de horário (`ParseHM`, `ResolveWindow`) e relógio (`now()`) |
 | `query.go` | Cliente do ClientQuery do TS3 |
-| `config.go` | Versão (`1.4.1`), preferências salvas, log em arquivo |
+| `config.go` | Versão (`1.4.2`), preferências salvas, log em arquivo |
 | `presets.go` | Atalhos de claim |
 | `catalog.go` | Lista dos respawns |
 | `platform_windows.go` / `platform_other.go` | DPAPI, abrir o navegador, caixas de mensagem |
 | `web/index.html` | A janelinha inteira (HTML, CSS e JS num arquivo só) |
 | `queue_test.go` | Testes da leitura da lista e da janela (`go test`) |
 | `record_test.go` | Testes do gravador e da comparação de nomes (`go test`) |
-| `capture_windows_test.go` | Teste da captura de verdade no Windows/Wine (`NEXTTS_WINE_TEST=1`, executável chamado `ts3client_...`) |
+| `capture_windows_test.go` | Teste da captura de verdade no Windows/Wine (`NEXTTS_WINE_TEST=1`, `desktop` ou `outro`; executável chamado `ts3client_...`) |
 | `testes/mock_ts3.py` | TeamSpeak simulado (ClientQuery falso com x3tBot e MissClick Bot Test) |
-| `testes/cenarios.py` | 70 cenários de ponta a ponta com o app de verdade (usa `ffprobe`/`ffmpeg` para conferir os vídeos) |
+| `testes/cenarios.py` | 76 cenários de ponta a ponta com o app de verdade (usa `ffprobe`/`ffmpeg` para conferir os vídeos) |
 | `testes/interface.py` | Testa a janelinha num Chromium (Playwright) e tira prints |
 | `build/gerar_recursos.py` | Gera ícone e informações de versão do .exe (`.syso`) |
 | `build/gerar_fonte.py` | Gera `fonte_dados.go` (letras da faixa do vídeo) |
@@ -168,11 +173,11 @@ R9 - [ Aceitar 00:03 ] Upper Roshamuul (Tier 1): Next: Alxoff — aguardando ace
 ### Como compilar e testar
 ```bash
 python3 build/gerar_fonte.py .
-python3 build/gerar_recursos.py . 1.4.1
+python3 build/gerar_recursos.py . 1.4.2
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -H windowsgui" -o "Next TS.exe" .
 python3 build/conferir_exe.py "Next TS.exe"
 go test ./...
-go build -race -o nextts-linux . && python3 -I testes/cenarios.py ./nextts-linux     # 70/70
+go build -race -o nextts-linux . && python3 -I testes/cenarios.py ./nextts-linux     # 76/76
 python3 -I testes/interface.py ./nextts-linux prints/                              # INTERFACE OK
 ```
 Variáveis só para testes: `NEXTTS_DATA` (pasta de dados), `NEXTTS_NO_BROWSER=1`, `NEXTTS_AUTO_EVERY`, `NEXTTS_TEST_CLOCK=HH:MM:SS` (simula o relógio), `NEXTTS_FAKE_TS=<arquivo>` (janela do TS de mentira no Linux: texto, `min` ou `none`) e `NEXTTS_PRINTS=<pasta>` (salva imagens dos vídeos dos cenários).
@@ -191,6 +196,7 @@ O ZIP entregue tem: `Next-TS/Next TS.exe`, `Next-TS/LEIA-ME.txt` e `Next-TS/codi
 - **1.3.0 (09/10):** só 1º next; age só quando alguém entra; janela de início; Plano A/B; atraso de 1 a 2 s; formato novo do x3tBot; relógio e conta na tela; proteção contra a linha "piscar". 48 cenários aprovados. **Funcionou perfeitamente no TS real.**
 - **1.4.0 (13/10):** caixinha "Esperar o next desistir"; gravação em vídeo da janela do TS (5 quadros/s, faixa com relógio, até 10 s depois de enviar). 64 cenários aprovados; captura do Windows testada no Wine.
 - **1.4.1 (13/10):** correção do formato novo do x3tBot: tempo com espaços `[ 01:45 ]` (na 1.3.0 o app não pegou o next do C1 com a janela ligada: "não consegui ler o tempo") e estado `[ Aceitar ... ]` (não é entrada nem falha). 70 cenários aprovados.
+- **1.4.2 (13/10):** regra 2 nova: pega quem **já está** caçando sem next ao Iniciar (e na troca para o B), se a conta der dentro da janela; fora da janela ou com next, não falha e espera a próxima. Gravação: escolhe melhor a janela do TS, tenta 3 jeitos de copiar, anota tudo no `registro.txt`, avisa se o TS estiver como administrador. 76 cenários aprovados; captura testada no Wine também com o TS como outro programa.
 
 ---
 
@@ -199,7 +205,7 @@ O ZIP entregue tem: `Next-TS/Next TS.exe`, `Next-TS/LEIA-ME.txt` e `Next-TS/codi
 - **Modo "só Enter" / envio "por escrito":** o app digitaria (ou só apertaria Enter) no chat privado do x3tBot em vez de mandar pelo ClientQuery. Eu disse "deixa pra depois" (de novo em 13/10). Riscos explicados: rouba o foco do Tibia, precisa da aba certa (senão vai para o canal), mexe no texto digitado. Para o bot e os outros membros, os dois jeitos são iguais.
 - Ideias que já foram sugeridas: aviso de "formato da lista mudou", botão "Copiar lista", favoritos, atalhos de teclado.
 - Achei desnecessário: acompanhar a fila e destacar a resposta do x3tBot.
-- Primeira coisa a fazer: **testar a 1.4.1 no TeamSpeak real**, em Modo teste primeiro, com a gravação ligada (conferir se o vídeo mostra a janela do TS e o "!next" no chat).
+- Primeira coisa a fazer: **testar a 1.4.2 no TeamSpeak real**, em Modo teste primeiro, com a gravação ligada (conferir se o vídeo mostra a janela do TS e o "!next" no chat).
 
 ## 8. Coisas que ficaram de fora na conversa anterior
 

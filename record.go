@@ -319,7 +319,8 @@ const (
 	capMinimized
 	capNotFound
 	capFailed
-	capBlack // achou a janela, mas a imagem veio toda preta
+	capBlack    // achou a janela, mas a imagem veio toda preta
+	capElevated // o TS está como administrador e o Next TS não: o Windows não deixa copiar
 )
 
 // allBlack confere (por amostragem) se a imagem veio toda preta.
@@ -538,15 +539,18 @@ func (r *Recorder) loop(s *recSession) {
 			case capNotFound:
 				r.log("warn", "Gravação: não achei a janela do TeamSpeak. Enquanto não achar, o vídeo mostra um aviso no lugar dela.")
 			case capFailed:
-				r.log("warn", "Gravação: não consegui copiar a imagem da janela do TeamSpeak agora. Vou continuar tentando.")
+				r.log("warn", "Gravação: não consegui copiar a imagem da janela do TeamSpeak agora. Vou continuar tentando. O motivo fica anotado no registro.txt.")
 			case capBlack:
 				r.log("warn", "Gravação: achei a janela do TeamSpeak, mas a imagem dela está vindo toda preta. O monitoramento continua normal. Se continuar assim, me avise (mande o registro.txt).")
+			case capElevated:
+				r.log("warn", "Gravação: o TeamSpeak está aberto como administrador e o Next TS não; assim o Windows não deixa copiar a janela. Para gravar, feche o Next TS e abra de novo com o botão direito → \"Executar como administrador\" (ou abra o TeamSpeak sem administrador). O monitoramento continua normal.")
 			}
 			lastState = st
 			r.mu.Lock()
 			s.note = map[capState]string{capOK: "", capMinimized: "TeamSpeak minimizado: o vídeo mostra um aviso no lugar da janela.",
-				capNotFound: "Não achei a janela do TeamSpeak.", capFailed: "Não consegui copiar a janela do TeamSpeak.",
-				capBlack: "A imagem da janela do TeamSpeak está vindo toda preta."}[st]
+				capNotFound: "Não achei a janela do TeamSpeak.", capFailed: "Não consegui copiar a janela do TeamSpeak (motivo no registro.txt).",
+				capBlack:    "A imagem da janela do TeamSpeak está vindo toda preta.",
+				capElevated: "O TeamSpeak está como administrador: abra o Next TS como administrador para gravar."}[st]
 			r.mu.Unlock()
 		}
 		r.compose(canvas, h, img, st, s)
@@ -689,6 +693,7 @@ func (r *Recorder) compose(canvas *image.RGBA, h int, img *image.RGBA, st capSta
 			capNotFound:  {"Janela do TeamSpeak não encontrada", "Abra o TeamSpeak (sem minimizar) para aparecer aqui.", "O monitoramento continua normal."},
 			capFailed:    {"Não consegui copiar a janela do TeamSpeak", "Vou continuar tentando.", ""},
 			capBlack:     {"A imagem do TeamSpeak veio toda preta", "Achei a janela, mas o Windows entregou a imagem preta.", "O monitoramento continua normal."},
+			capElevated:  {"TeamSpeak aberto como administrador", "O Windows não deixa copiar a janela. Abra o Next TS como administrador.", "O monitoramento continua normal."},
 		}[st]
 		y := h/2 - 2*fontH
 		for i, ln := range msg {
