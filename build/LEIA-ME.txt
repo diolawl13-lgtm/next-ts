@@ -1,5 +1,51 @@
-NEXT TS 1.3.0 - COMO USAR
+NEXT TS 1.4.0 - COMO USAR
 ==========================
+
+NOVIDADES DA 1.4.0
+------------------
+- Caixinha "Esperar o next desistir" (opcional). Sem ela, tudo funciona
+  como na 1.3.0. Com ela ligada:
+  - Se alguém entra na hunt e JÁ TEM next, o plano não falha na hora.
+    O app fica olhando essa hunt e, se o next SAIR DA FILA (desistir) e o
+    next ficar vazio, ele manda o seu "!next" (com o mesmo atraso de 1 a
+    2 segundos e a conferência de sempre).
+  - Se tiver 2 no next e só 1 desistir, ainda tem gente na fila: ele
+    continua esperando.
+  - Se em vez de desistir o next ENTRAR NA HUNT (o tempo de quem caçava
+    acabou), o plano falha (passa para o B, ou para).
+  - Se alguém pegar o next durante o atraso de 1 a 2 segundos, ele cancela
+    o envio e volta a esperar esse next desistir.
+  - A janela de início continua valendo. Se a hunt já começaria fora da
+    janela, ele nem espera: o plano falha na hora.
+  - O respawn ficou livre durante a espera: não é falha, continua
+    esperando. Se depois entrar outra pessoa, conta como hunt nova.
+  - Quem já estava na hunt quando você clicou em Iniciar continua não
+    sendo pego, mesmo que o next dele desista.
+- Caixinha "Gravar vídeo da janela do TeamSpeak" (opcional):
+  - Grava só a janela do TS, 5 quadros por segundo, do Iniciar até 10
+    segundos depois de enviar (para pegar a resposta do bot). Também grava
+    no Modo teste. Se você clicar em Parar, ou o plano falhar, termina 2
+    segundos depois.
+  - Embaixo da imagem do TS vai uma faixa com o relógio do PC e os últimos
+    acontecimentos, por exemplo: 'ENVIADO "!next C1" para x3tBot'.
+  - Os vídeos ficam em  %LOCALAPPDATA%\NextTS\gravacoes  e NUNCA são
+    apagados pelo app. Use o botão "Abrir pasta das gravações".
+    Nome do arquivo: data_hora_código.avi (ex.: 2026-10-13_20-15-03_C1.avi;
+    no Modo teste termina em "_teste").
+  - Formato .avi. Abre no VLC (recomendado, é grátis). Se o player do
+    Windows não abrir, use o VLC.
+  - Tamanho: quadros iguais não são gravados de novo, então costuma dar
+    algumas centenas de MB por hora de espera (depende do tamanho da
+    janela do TS). Acima de 1 GB, ele continua num arquivo "_parte2".
+  - PARA A MENSAGEM APARECER NO VÍDEO: antes de clicar em Iniciar, deixe
+    aberto e selecionado no TeamSpeak o CHAT PRIVADO COM O BOT (x3tBot ou
+    MissClick Bot Test). O "!next" sai do seu TS, com o seu nome, e aparece
+    nesse chat como se você tivesse digitado.
+  - NÃO MINIMIZE o TeamSpeak. Ele pode ficar ATRÁS do Tibia, mas
+    minimizado o Windows não deixa gravar. Se estiver minimizado, o vídeo
+    mostra um aviso no lugar da janela e o app avisa no Histórico. O
+    monitoramento e o envio continuam normais.
+  - Um problema na gravação nunca atrapalha o monitoramento nem o envio.
 
 NOVIDADES DA 1.3.0
 ------------------
@@ -70,6 +116,8 @@ código que você escolher) no privado do x3tBot. Envia UMA ÚNICA VEZ e para.
 
 Ele usa o próprio TeamSpeak para ler a lista e mandar a mensagem. Não mexe no
 teclado nem no mouse, não mexe no Tibia, e o TS pode ficar minimizado.
+(Só com a gravação de vídeo ligada o TS não pode ficar minimizado; pode
+ficar atrás de outras janelas.)
 
 
 PRIMEIRA VEZ (só uma vez)
@@ -139,7 +187,9 @@ AS REGRAS DO APP
 - Lê a lista a cada 0,5 segundo.
 - Só 1º next, e só quando alguém ENTRA na hunt depois que você inicia.
 - Respawn livre (o código não aparece na lista): NUNCA envia nada.
-- Alguém entrou e já tem gente no next: o plano falhou.
+- Alguém entrou e já tem gente no next: o plano falhou. Com "Esperar o
+  next desistir" ligado, ele espera o next sair da fila e então manda; se
+  o next entrar na hunt em vez de desistir, aí o plano falhou.
 - Com a janela ligada: hora atual + tempo que falta tem que cair dentro
   da janela. Se cair fora, o plano falhou. Se a linha não mostrar o tempo,
   ele não envia (não tem como conferir).
@@ -161,12 +211,17 @@ SE DER PROBLEMA
 - "A lista está vazia": clique no canal Claimeds no TeamSpeak.
 - Aviso em amarelo "A lista mudou pela última vez há ... min" com o
   x3tBot funcionando: clique no Claimeds de novo no TS e me avise.
+- O vídeo mostra "TeamSpeak minimizado": não minimize o TS durante a
+  gravação (pode deixar atrás do Tibia).
+- O vídeo não abre: instale o VLC (videolan.org) e abra por ele.
 - O antivírus bloqueou: alguns antivírus desconfiam de programas novos
   sem assinatura. Se acontecer, me avise.
 
 Os arquivos do app ficam em:  %LOCALAPPDATA%\NextTS
 Lá tem o "registro.txt" com o que o app fez. Ele NÃO contém sua chave.
 Se precisar de ajuda, mande esse arquivo.
+
+Letras da faixa do vídeo: fonte DejaVu Sans Mono (licença livre).
 
 A pasta "codigo-fonte" não é necessária para usar o app. Ela serve para
 quem for fazer ajustes no futuro.

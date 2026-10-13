@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-const Version = "1.3.0"
+const Version = "1.4.0"
 
 // Preset é um "atalho de claim": de onde ler (canal) e para quem mandar (bot).
 // Guarda o UID do bot (estável) e os nomes só para mostrar.
@@ -37,6 +37,8 @@ type Settings struct {
 	WindowOn      bool     `json:"windowOn"`
 	WindowStart   string   `json:"windowStart"`
 	WindowEnd     string   `json:"windowEnd"`
+	WaitGiveUp    bool     `json:"waitGiveUp"` // esperar o next desistir
+	Record        bool     `json:"record"`     // gravar a janela do TS em vídeo
 	Presets       []Preset `json:"presets"`
 	// Atalhos sugeridos automaticamente que o usuário apagou (não recriar).
 	PresetsRemoved []string `json:"presetsRemoved"`

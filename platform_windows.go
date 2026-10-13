@@ -122,6 +122,16 @@ func openWindow(url, profileDir string) error {
 	return openDefaultBrowser(url)
 }
 
+// openFolder abre uma pasta no Explorador de Arquivos.
+func openFolder(dir string) error {
+	cmd := exec.Command("explorer.exe", dir)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	go cmd.Wait()
+	return nil
+}
+
 func openDefaultBrowser(url string) error {
 	cmd := exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}

@@ -80,7 +80,7 @@ func main() {
 		}
 	}
 	srv.waitQuit()
-	app.Stop("App fechado.")
+	app.Shutdown()
 	_ = os.Remove(instPath)
 	fileLog("encerrado")
 }
@@ -303,6 +303,8 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.app.Stop("Parado por você.")
 	case "/api/forget":
 		s.app.ForgetKey()
+	case "/api/openrec":
+		err = s.app.OpenRecDir()
 	case "/api/bye":
 		s.mu.Lock()
 		s.byeAt = time.Now()

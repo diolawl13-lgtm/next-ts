@@ -1,6 +1,6 @@
 # Next TS — resumo completo do projeto (para continuar no Claude Code)
 
-> Junto com este resumo vai o arquivo **Next-TS-1.3.0.zip** (última versão). Dentro dele, a pasta `Next-TS/codigo-fonte` tem todo o código, os testes e as ferramentas de build.
+> Junto com este resumo vai o arquivo **Next-TS-1.4.0.zip** (última versão). Dentro dele, a pasta `Next-TS/codigo-fonte` tem todo o código, os testes e as ferramentas de build.
 
 ---
 
@@ -25,7 +25,8 @@ O **Next TS** fica de olho na lista de claimeds que o x3tBot publica na **descri
 - Ele usa o próprio TeamSpeak (pelo plugin **ClientQuery**) para ler a lista e mandar a mensagem.
 - Não mexe em teclado, mouse nem no Tibia. O TS pode ficar minimizado.
 - **A versão 1.0.1 (07/10/2026) foi a primeira versão funcional**, confirmada por mim no TeamSpeak real.
-- A versão atual é a **1.3.0 (09/10/2026)**. Ela foi testada só no TS simulado; ainda não testei no TS real.
+- A **1.3.0 (09/10/2026)** funcionou perfeitamente no TS real (confirmado por mim em 13/10/2026).
+- A versão atual é a **1.4.0 (13/10/2026)**: "esperar o next desistir" e gravação em vídeo. Testada no TS simulado e a parte Windows no Wine; ainda não testei no TS real.
 
 ---
 
@@ -61,7 +62,7 @@ B3 - [01:16] Gloom Pillars: Arthy Zephyr
 
 ---
 
-## 4. Regras atuais do app (versão 1.3.0, combinadas comigo)
+## 4. Regras atuais do app (versão 1.4.0, combinadas comigo)
 
 1. **Só 1º next.** Eu não posso mais pegar 2º next. A opção de 2º next e a opção "pegar logo se já estiver disponível" foram removidas.
 2. **O app só age quando ALGUÉM ENTRA na hunt** depois que eu clico em Iniciar. Quem já estava lá antes ele não pega (esse eu mesmo pego na mão).
@@ -89,6 +90,22 @@ B3 - [01:16] Gloom Pillars: Arthy Zephyr
 10. **Modo teste:** faz tudo, mas não envia (mostra "eu teria enviado...").
 11. "Parar" cancela tudo, inclusive um envio que estava para sair. Se o comando já estava saindo, ele mostra o resultado certo.
 12. Se o TS cair ou desconectar do servidor: não envia nada e volta sozinho quando o TS voltar.
+13. **Esperar o next desistir** (opcional, caixinha; desligada = igual à 1.3.0):
+    - Alguém entra na hunt **já com next**: não falha na hora. Espera o next **sair da fila** (next vazio) e então manda (atraso 1 a 2 s + conferência).
+    - 2 no next e só 1 desiste: continua esperando.
+    - O next **entra na hunt** em vez de desistir (comparado pelo nome; a "/" vale qualquer um dos nomes): o plano **falha**. Também falha se a lista mostrar um instante sem o next e logo depois essa pessoa caçando.
+    - Alguém pega o next durante o atraso de 1 a 2 s: cancela o envio e volta a esperar esse next desistir.
+    - Janela ligada: se a hunt já começaria fora da janela, falha na hora (nem espera). Na desistência, a conta é refeita.
+    - Respawn ficou livre na espera: não é falha. Se entrar **outra** pessoa, é hunt nova (regras normais).
+    - Quem já estava na hunt antes de Iniciar continua não sendo pego, mesmo que o next dele desista.
+14. **Gravação em vídeo** (opcional, caixinha):
+    - Grava **só a janela do TeamSpeak**, **5 quadros/s**, do Iniciar até **10 s depois de enviar** (ou do "teria enviado" no Modo teste). Parar/falha/janela encerrada: termina 2 s depois.
+    - Embaixo da imagem do TS vai uma **faixa** com o relógio do PC e os 2 últimos acontecimentos (ex.: `ENVIADO "!next C1" para x3tBot`).
+    - O "!next" aparece no chat do TS porque sai do próprio TS (ClientQuery). Eu preciso deixar **aberto e selecionado o chat privado com o bot** e **não minimizar** o TS (atrás do Tibia pode). Minimizado: o vídeo mostra um aviso no lugar da janela.
+    - Pasta `%LOCALAPPDATA%\NextTS\gravacoes`, nome `AAAA-MM-DD_HH-MM-SS_C1.avi` (`_teste` no Modo teste). **Nunca apaga vídeos antigos.** Acima de 1 GB continua em `_parte2`.
+    - Quadro igual ao anterior não é gravado de novo (vídeo menor). Formato AVI/MJPEG: abre no VLC.
+    - Problema na gravação nunca atrapalha o monitoramento nem o envio.
+    - Envio "por escrito" (digitar no TS) em vez do ClientQuery: eu disse **"deixa pra depois"**.
 
 ---
 
@@ -99,7 +116,8 @@ B3 - [01:16] Gloom Pillars: Arthy Zephyr
 - **TeamSpeak:** ClientQuery em `127.0.0.1:25639`, autenticado com a **API Key** (TS → Ferramentas → Opções → Addons → ClientQuery → Configurações).
   - Comandos usados: `auth`, `use`, `whoami`, `serverconnectionhandlerlist`, `servervariable`, `clientvariable`, `channellist`, `clientlist -uid`, `channelvariable cid=X channel_description`, `sendtextmessage targetmode=1`, `clientnotifyregister` (para ver a resposta do bot).
   - O bot é achado pela **UID**, porque o número dele muda quando ele reconecta.
-- **Chave:** salva protegida pelo Windows (DPAPI). Dados em `%LOCALAPPDATA%\NextTS`: `preferencias.json`, `registro.txt` (log sem a chave) e `instancia.json`.
+- **Chave:** salva protegida pelo Windows (DPAPI). Dados em `%LOCALAPPDATA%\NextTS`: `preferencias.json`, `registro.txt` (log sem a chave), `instancia.json` e a pasta `gravacoes`.
+- **Gravação:** acha a janela do TS pelo programa (`ts3client_win64.exe`/`ts3client_win32.exe`) e copia a imagem com `PrintWindow(PW_RENDERFULLCONTENT)` (funciona com a janela coberta, não minimizada). O app se declara "DPI aware" para pegar o tamanho real da janela. Grava AVI com imagens JPEG (biblioteca padrão do Go); quadros repetidos viram "pedaços vazios" (o tempo do vídeo continua certo). A faixa usa letras da fonte DejaVu Sans Mono embutidas em `fonte_dados.go`.
 - **Uma cópia só:** se abrir de novo, a cópia nova fecha (ou fecha a versão antiga, se for mais nova).
 - **Conecta sozinho:** se o TS abrir depois, o app conecta quando o TS estiver no servidor. Se a chave for recusada, para de tentar até eu colar outra.
 - **Escolha do canal:** prefere o que eu escolhi; depois, um canal que tenha a lista de verdade; depois, o nome "Claimeds". Canais de teste/erro/regras perdem pontos. Se o canal estiver sem lista, o app não deixa iniciar (já aconteceu de ele escolher "Claimed TEST", que estava vazio).
@@ -114,31 +132,39 @@ B3 - [01:16] Gloom Pillars: Arthy Zephyr
 | `main.go` | Servidor local, rotas `/api/...`, abre o navegador, uma cópia só, `initClock()` |
 | `app.go` | Motor: conexão, leitura a cada 0,5 s, Plano A/B, janela, atraso, envio, estado da janela |
 | `queue.go` | Lê a lista do x3tBot (formatos novo e antigo, tempo que falta, contagem do next) |
+| `record.go` | Gravação: arquivo AVI/MJPEG, faixa com relógio e acontecimentos, início/fim |
+| `capture_windows.go` | Acha a janela do TS e copia a imagem dela (Windows) |
+| `capture_other.go` | Janela do TS de mentira para os testes no Linux (`NEXTTS_FAKE_TS`) |
+| `fonte_dados.go` | Letras da faixa do vídeo (gerado por `build/gerar_fonte.py`) |
 | `window.go` | Janela de horário (`ParseHM`, `ResolveWindow`) e relógio (`now()`) |
 | `query.go` | Cliente do ClientQuery do TS3 |
-| `config.go` | Versão (`1.3.0`), preferências salvas, log em arquivo |
+| `config.go` | Versão (`1.4.0`), preferências salvas, log em arquivo |
 | `presets.go` | Atalhos de claim |
 | `catalog.go` | Lista dos respawns |
 | `platform_windows.go` / `platform_other.go` | DPAPI, abrir o navegador, caixas de mensagem |
 | `web/index.html` | A janelinha inteira (HTML, CSS e JS num arquivo só) |
 | `queue_test.go` | Testes da leitura da lista e da janela (`go test`) |
+| `record_test.go` | Testes do gravador e da comparação de nomes (`go test`) |
+| `capture_windows_test.go` | Teste da captura de verdade no Windows/Wine (`NEXTTS_WINE_TEST=1`, executável chamado `ts3client_...`) |
 | `testes/mock_ts3.py` | TeamSpeak simulado (ClientQuery falso com x3tBot e MissClick Bot Test) |
-| `testes/cenarios.py` | 48 cenários de ponta a ponta com o app de verdade |
+| `testes/cenarios.py` | 64 cenários de ponta a ponta com o app de verdade (usa `ffprobe`/`ffmpeg` para conferir os vídeos) |
 | `testes/interface.py` | Testa a janelinha num Chromium (Playwright) e tira prints |
 | `build/gerar_recursos.py` | Gera ícone e informações de versão do .exe (`.syso`) |
+| `build/gerar_fonte.py` | Gera `fonte_dados.go` (letras da faixa do vídeo) |
 | `build/conferir_exe.py` | Confere o .exe gerado |
 | `build/LEIA-ME.txt` | Manual para mim (vai no ZIP) |
 
 ### Como compilar e testar
 ```bash
-python3 build/gerar_recursos.py . 1.3.0
+python3 build/gerar_fonte.py .
+python3 build/gerar_recursos.py . 1.4.0
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -H windowsgui" -o "Next TS.exe" .
 python3 build/conferir_exe.py "Next TS.exe"
 go test ./...
-go build -race -o nextts-linux . && python3 -I testes/cenarios.py ./nextts-linux     # 48/48
+go build -race -o nextts-linux . && python3 -I testes/cenarios.py ./nextts-linux     # 64/64
 python3 -I testes/interface.py ./nextts-linux prints/                              # INTERFACE OK
 ```
-Variáveis só para testes: `NEXTTS_DATA` (pasta de dados), `NEXTTS_NO_BROWSER=1`, `NEXTTS_AUTO_EVERY` e `NEXTTS_TEST_CLOCK=HH:MM:SS` (simula o relógio).
+Variáveis só para testes: `NEXTTS_DATA` (pasta de dados), `NEXTTS_NO_BROWSER=1`, `NEXTTS_AUTO_EVERY`, `NEXTTS_TEST_CLOCK=HH:MM:SS` (simula o relógio), `NEXTTS_FAKE_TS=<arquivo>` (janela do TS de mentira no Linux: texto, `min` ou `none`) e `NEXTTS_PRINTS=<pasta>` (salva imagens dos vídeos dos cenários).
 
 O ZIP entregue tem: `Next-TS/Next TS.exe`, `Next-TS/LEIA-ME.txt` e `Next-TS/codigo-fonte/`.
 
@@ -151,17 +177,18 @@ O ZIP entregue tem: `Next-TS/Next TS.exe`, `Next-TS/LEIA-ME.txt` e `Next-TS/codi
 - **1.1.0 (07/10):** tema medieval com o guerreiro. Regra da fila: "+1" soma, "/" não soma.
 - **1.2.0 (08/10):** atalhos de claim (x3tBot / MissClick), escolha lembrada, conecta sozinho, avisos de erro que ficam na tela, tocha, céu e guerreiro animado.
 - **1.2.1 (08/10):** correção do Parar bem na hora do envio; aba certa do TS antes de enviar; visual refinado.
-- **1.3.0 (09/10):** só 1º next; age só quando alguém entra; janela de início; Plano A/B; atraso de 1 a 2 s; formato novo do x3tBot; relógio e conta na tela; proteção contra a linha "piscar". 48 cenários aprovados.
+- **1.3.0 (09/10):** só 1º next; age só quando alguém entra; janela de início; Plano A/B; atraso de 1 a 2 s; formato novo do x3tBot; relógio e conta na tela; proteção contra a linha "piscar". 48 cenários aprovados. **Funcionou perfeitamente no TS real.**
+- **1.4.0 (13/10):** caixinha "Esperar o next desistir"; gravação em vídeo da janela do TS (5 quadros/s, faixa com relógio, até 10 s depois de enviar). 64 cenários aprovados; captura do Windows testada no Wine.
 
 ---
 
 ## 7. Ideias pendentes (NÃO fazer sem eu pedir)
 
-- **Modo "só Enter":** eu deixo o comando digitado no privado do x3tBot e o app só aperta Enter, só se o TS estiver na frente. Eu disse "deixa pra depois".
+- **Modo "só Enter" / envio "por escrito":** o app digitaria (ou só apertaria Enter) no chat privado do x3tBot em vez de mandar pelo ClientQuery. Eu disse "deixa pra depois" (de novo em 13/10). Riscos explicados: rouba o foco do Tibia, precisa da aba certa (senão vai para o canal), mexe no texto digitado. Para o bot e os outros membros, os dois jeitos são iguais.
 - Ideias que já foram sugeridas: aviso de "formato da lista mudou", botão "Copiar lista", favoritos, atalhos de teclado.
 - Achei desnecessário: acompanhar a fila e destacar a resposta do x3tBot.
-- Primeira coisa a fazer: **testar a 1.3.0 no TeamSpeak real**, em Modo teste primeiro.
+- Primeira coisa a fazer: **testar a 1.4.0 no TeamSpeak real**, em Modo teste primeiro, com a gravação ligada (conferir se o vídeo mostra a janela do TS e o "!next" no chat).
 
 ## 8. Coisas que ficaram de fora na conversa anterior
 
-Gravação e prints da tela do TS, diário automático, imagem imitando print do TS, disfarce de "parecer digitado", outfit do Tibia (Golden Outfit) no boneco e acessar o código do x3tBot. Nada disso está no app.
+Prints da tela do TS (a gravação em vídeo foi feita na 1.4.0), diário automático, imagem imitando print do TS, disfarce de "parecer digitado", outfit do Tibia (Golden Outfit) no boneco e acessar o código do x3tBot. Nada disso está no app.

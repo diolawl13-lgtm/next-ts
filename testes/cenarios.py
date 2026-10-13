@@ -48,7 +48,11 @@ def L(code="c1", t="01:30", who="Kira Zinha", nxt=(), resp="Livraria de Fire (Ti
 class App:
     def __init__(self, data=None, auto="300ms", clock=""):
         self.data = data or tempfile.mkdtemp(prefix="nextts-")
-        env = dict(os.environ, NEXTTS_DATA=self.data, NEXTTS_NO_BROWSER="1", NEXTTS_AUTO_EVERY=auto)
+        # "Janela do TeamSpeak" de mentira para a gravação (o texto vira o conteúdo da janela).
+        self.tswin = os.path.join(self.data, "janela_ts.txt")
+        if not os.path.exists(self.tswin):
+            self.set_tswin("Chat privado com x3tBot Kalibra")
+        env = dict(os.environ, NEXTTS_DATA=self.data, NEXTTS_NO_BROWSER="1", NEXTTS_AUTO_EVERY=auto, NEXTTS_FAKE_TS=self.tswin)
         if clock:
             env["NEXTTS_TEST_CLOCK"] = clock
         self.p = subprocess.Popen([BIN], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -82,12 +86,22 @@ class App:
     def connect(self, key=KEY, remember=True):
         return self.api("connect", {"key": key, "port": 25639, "remember": remember})
 
-    def start(self, code="C1", codeB="", win=None, test=False):
+    def set_tswin(self, text):
+        tmp = self.tswin + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(tmp, self.tswin)
+
+    def start(self, code="C1", codeB="", win=None, test=False, wait=False, rec=False):
         s = self.state()
         body = {"handler": s["handler"], "cid": s["cid"], "botUID": s["botUID"], "code": code, "codeB": codeB,
                 "windowOn": bool(win), "windowStart": win[0] if win else "", "windowEnd": win[1] if win else "",
-                "testMode": test}
+                "testMode": test, "waitGiveUp": wait, "record": rec}
         return self.api("start", body)
+
+    def videos(self):
+        d = os.path.join(self.data, "gravacoes")
+        return sorted(os.path.join(d, f) for f in os.listdir(d)) if os.path.isdir(d) else []
 
     def mon(self):
         return self.state()["monitor"]
@@ -136,7 +150,7 @@ RESULTS = []
 # Cenários que precisam da conexão automática desligada (o app só conecta quando pedido).
 AUTO = {"t25_reconectar_sem_colar_chave": "1h"}
 # Cenários com relógio simulado (hora do "Windows" para o app).
-CLOCK = {"t40": "18:30:00", "t41": "18:30:00", "t42": "18:30:00", "t43": "22:30:57", "t44": "23:00:00",
+CLOCK = {"t52": "18:30:00", "t40": "18:30:00", "t41": "18:30:00", "t42": "18:30:00", "t43": "22:30:57", "t44": "23:00:00",
          "t45": "23:50:00", "t46": "18:30:20", "t47": "18:30:00", "t16": "18:30:00", "t18": "18:30:00"}
 
 
@@ -973,6 +987,359 @@ def t48_linha_pisca_nao_conta_como_entrada(app):
     time.sleep(0.8)
     entra(who="Gente Nova")
     assert wait(lambda: mock.sent, 5)
+
+
+# ---------------------------------------------------------------- 1.4: esperar o next desistir
+
+@scenario
+def t49_espera_next_desistir_e_envia(app):
+    connected(app)
+    mock.set_desc(desc(*OUTRAS))
+    st, r = app.start("C1", wait=True)
+    assert st == 200, r
+    assert app.mon()["waitGiveUp"] is True
+    time.sleep(1)
+    entra(nxt=["Lord Calvon"])  # entrou já com alguém no next: com a opção, NÃO falha
+    assert wait(lambda: app.mon()["waitingFor"] == "Lord Calvon", 3), app.mon()
+    time.sleep(2.5)
+    m = app.mon()
+    assert m["running"] and m["plan"] == "A" and m["phase"] == "watching", m
+    assert "Esperando o next desistir" in m["status"], m["status"]
+    assert not mock.sent, "enviou com alguém no next"
+    assert any("Vou esperar o next desistir" in x for x in logs(app)), logs(app)
+    t = time.time()
+    entra()  # Lord Calvon saiu da fila (desistiu)
+    assert wait(lambda: mock.sent, 5), "não enviou quando o next desistiu"
+    dt = mock.sent[0][0] - t
+    assert 0.95 <= dt <= 2.7, f"atraso {dt:.2f}s"
+    assert mock.sent[0][2] == "!next C1"
+    assert any("Lord Calvon desistiu do next de C1" in x for x in logs(app)), logs(app)
+    assert wait(lambda: app.mon()["phase"] == "sent", 2)
+    time.sleep(2)
+    assert len(mock.sent) == 1
+
+
+@scenario
+def t50_next_nao_desiste_e_entra_falha_vai_B(app):
+    connected(app)
+    mock.set_desc(desc(*OUTRAS))
+    app.start("C1", "D7", wait=True)
+    time.sleep(1)
+    entra(nxt=["Lord Calvon"])
+    assert wait(lambda: app.mon()["waitingFor"] == "Lord Calvon", 3), app.mon()
+    # O tempo do Kira acabou e o next (Lord Calvon) entrou na hunt: não desistiu.
+    entra(who="Lord Calvon", t="02:00")
+    assert wait(lambda: app.mon()["plan"] == "B", 3), app.mon()
+    assert any("Lord Calvon não desistiu do next e entrou na hunt" in x for x in logs(app)), logs(app)
+    assert app.mon()["waitingFor"] == ""
+    time.sleep(2.5)
+    assert not mock.sent, "enviou depois que o A falhou"
+    # B: alguém entra no D7 sem next → pega.
+    mock.set_desc(desc(L(who="Lord Calvon", t="02:00"), L("D7", "01:00", "Hunter B", resp="DT"), *OUTRAS))
+    assert wait(lambda: mock.sent, 5)
+    assert mock.sent[0][2] == "!next D7"
+
+
+@scenario
+def t51_dois_no_next_um_desiste_continua(app):
+    connected(app)
+    mock.set_desc(desc(*OUTRAS))
+    app.start("C1", wait=True)
+    time.sleep(1)
+    entra(nxt=["Shawn Shooter", "Billy Noval"])
+    assert wait(lambda: app.mon()["waitingFor"] == "Shawn Shooter", 3), app.mon()
+    entra(nxt=["Billy Noval"])  # só 1 desistiu: ainda tem gente na fila
+    assert wait(lambda: app.mon()["waitingFor"] == "Billy Noval", 3), app.mon()
+    time.sleep(2.5)
+    assert not mock.sent, "enviou com 1 ainda no next"
+    entra()  # o outro também desistiu
+    assert wait(lambda: mock.sent, 5)
+    assert mock.sent[0][2] == "!next C1"
+
+
+@scenario
+def t52_espera_com_janela(app):
+    # Relógio 18:30. A: entra com next e a hunt seria às 23:30 (fora): falha na hora, nem espera.
+    connected(app)
+    mock.set_desc(desc(*OUTRAS))
+    app.start("C1", "D7", win=("20:00", "22:30"), wait=True)
+    time.sleep(1)
+    entra(t="05:00", nxt=["Atrasado"])
+    assert wait(lambda: app.mon()["plan"] == "B", 3), app.mon()
+    assert any("23:30" in x and "fora da janela" in x for x in logs(app)), logs(app)
+    # B: entra com next e a hunt seria às 20:15 (dentro): espera; o next desiste: envia.
+    d7 = lambda nxt: L("D7", "01:45", "Hunter B", resp="DT", nxt=nxt)
+    mock.set_desc(desc(L(t="05:00", nxt=["Atrasado"]), d7(["Fulano"]), *OUTRAS))
+    assert wait(lambda: app.mon()["waitingFor"] == "Fulano", 3), app.mon()
+    time.sleep(1)
+    assert not mock.sent
+    mock.set_desc(desc(L(t="05:00", nxt=["Atrasado"]), d7([]), *OUTRAS))
+    assert wait(lambda: mock.sent, 5), app.mon()
+    assert mock.sent[0][2] == "!next D7"
+    lg = " ".join(logs(app))
+    assert "Fulano desistiu do next de D7" in lg and "20:15 → dentro da janela" in lg, lg
+
+
+@scenario
+def t53_pegaram_next_no_atraso_volta_a_esperar(app):
+    connected(app)
+    mock.set_desc(desc(*OUTRAS))
+    app.start("C1", wait=True)
+    time.sleep(1)
+    entra()
+    assert wait(lambda: app.mon()["phase"] == "pending", 2)
+    time.sleep(0.2)
+    entra(nxt=["Fulano Rapido"])  # pegaram o next durante o atraso de 1 a 2 s
+    assert wait(lambda: app.mon()["waitingFor"] == "Fulano Rapido", 3), app.mon()
+    time.sleep(2.5)
+    assert not mock.sent and app.mon()["running"] and app.mon()["plan"] == "A", app.mon()
+    assert any("Envio cancelado" in x and "Fulano Rapido" in x for x in logs(app)), logs(app)
+    entra()  # Fulano desistiu
+    assert wait(lambda: mock.sent, 5)
+    assert mock.sent[0][2] == "!next C1"
+
+
+@scenario
+def t54_quem_ja_estava_com_next_nao_pega(app):
+    # Kira já estava na hunt (com next) antes de Iniciar: mesmo o next desistindo, não pega.
+    connected(app)
+    mock.set_desc(desc(OCUP1, *OUTRAS))
+    app.start("C1", wait=True)
+    time.sleep(1.5)
+    mock.set_desc(desc(OCUP0, *OUTRAS))
+    time.sleep(3)
+    assert not mock.sent, "pegou o next da hunt que já existia antes de Iniciar"
+    assert app.mon()["running"] and app.mon()["waitingFor"] == ""
+
+
+@scenario
+def t55_livre_na_espera_e_entra_outra_pessoa(app):
+    connected(app)
+    mock.set_desc(desc(*OUTRAS))
+    app.start("C1", wait=True)
+    time.sleep(1)
+    entra(nxt=["Lord Calvon"])
+    assert wait(lambda: app.mon()["waitingFor"] == "Lord Calvon", 3)
+    mock.set_desc(desc(*OUTRAS))  # ficou livre: não é falha
+    time.sleep(2)
+    m = app.mon()
+    assert m["running"] and m["plan"] == "A" and m["waitingFor"] == "Lord Calvon", m
+    assert "ficou livre" in m["status"], m["status"]
+    entra(who="Gente Nova", t="02:00")  # outra pessoa (não é o next): hunt nova, sem next → pega
+    assert wait(lambda: mock.sent, 5), app.mon()
+
+
+@scenario
+def t56_livre_na_espera_e_o_next_entra_falha(app):
+    connected(app)
+    mock.set_desc(desc(*OUTRAS))
+    app.start("C1", wait=True)
+    time.sleep(1)
+    entra(nxt=["Dudu / Pedrinho"])
+    assert wait(lambda: app.mon()["waitingFor"] == "Dudu / Pedrinho", 3), app.mon()
+    mock.set_desc(desc(*OUTRAS))
+    time.sleep(1)
+    entra(who="Dudu", t="02:00")  # a dupla do next entrou na hunt: não desistiu
+    assert wait(lambda: app.mon()["phase"] == "failed", 3), app.mon()
+    assert "não desistiu" in app.mon()["status"], app.mon()["status"]
+    time.sleep(1.5)
+    assert not mock.sent
+
+
+@scenario
+def t57_espera_em_modo_teste(app):
+    connected(app)
+    mock.set_desc(desc(*OUTRAS))
+    app.start("C1", test=True, wait=True)
+    time.sleep(1)
+    entra(nxt=["Lord Calvon"])
+    assert wait(lambda: app.mon()["waitingFor"] == "Lord Calvon", 3)
+    entra()
+    assert wait(lambda: app.mon()["phase"] == "tested", 5), app.mon()
+    time.sleep(1)
+    assert not mock.sent and not any(c.startswith("sendtextmessage") for c in mock.commands)
+
+
+@scenario
+def t64_next_some_um_instante_e_entra_na_hunt(app):
+    # Na troca, a lista mostra Kira sem next por um instante e logo Lord Calvon caçando:
+    # não foi desistência, ele entrou na hunt. Não pode mandar o !next para a hunt dele.
+    connected(app)
+    mock.set_desc(desc(*OUTRAS))
+    app.start("C1", wait=True)
+    time.sleep(1)
+    entra(nxt=["Lord Calvon"])
+    assert wait(lambda: app.mon()["waitingFor"] == "Lord Calvon", 3)
+    entra()  # instante sem o next
+    assert wait(lambda: app.mon()["phase"] == "pending", 2), app.mon()
+    entra(who="Lord Calvon", t="02:00")
+    assert wait(lambda: app.mon()["phase"] == "failed", 4), app.mon()
+    assert "não desistiu" in app.mon()["status"], app.mon()["status"]
+    time.sleep(2.5)
+    assert not mock.sent, "mandou o !next para a hunt de quem estava no next"
+
+
+# ---------------------------------------------------------------- 1.4: gravação
+
+def probe(path):
+    """Confere o vídeo com o ffprobe/ffmpeg: formato, tamanho, ritmo, duração e se todos os quadros abrem."""
+    r = subprocess.run(["ffprobe", "-v", "error", "-count_frames", "-select_streams", "v:0",
+                        "-show_entries", "stream=codec_name,width,height,r_frame_rate,nb_read_frames:format=duration,format_name",
+                        "-of", "json", path], capture_output=True, text=True)
+    assert r.returncode == 0 and not r.stderr.strip(), r.stderr
+    info = json.loads(r.stdout)
+    d = subprocess.run(["ffmpeg", "-v", "error", "-i", path, "-f", "null", "-"], capture_output=True, text=True)
+    assert d.returncode == 0 and not d.stderr.strip(), "quadros com erro: " + d.stderr[:300]
+    st = info["streams"][0]
+    assert info["format"]["format_name"] == "avi" and st["codec_name"] == "mjpeg", info
+    assert st["r_frame_rate"] == "5/1", st
+    # Cada imagem aparece no tempo certo (múltiplos de 0,2 s); as repetidas não ocupam espaço.
+    f = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "frame=pts_time", "-of", "csv=p=0", path],
+                       capture_output=True, text=True)
+    pts = [float(x) for x in f.stdout.split()]
+    assert pts and pts[0] == 0 and all(abs(x * 5 - round(x * 5)) < 1e-6 for x in pts), pts[:20]
+    assert all(b > a for a, b in zip(pts, pts[1:])), "tempos fora de ordem"
+    st["pts"] = pts
+    return float(info["format"]["duration"]), st
+
+
+def frame_png(path, at, out):
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-sseof", str(-at), "-i", path, "-frames:v", "1", out], check=True)
+
+
+PRINTS = os.environ.get("NEXTTS_PRINTS", "")
+
+
+@scenario
+def t58_gravacao_do_envio(app):
+    connected(app)
+    mock.set_desc(desc(*OUTRAS))
+    app.set_tswin("Chat privado com x3tBot Kalibra\n<18:00:00> x3tBot Kalibra: Bem-vindo!")
+    st, r = app.start("C1", rec=True)
+    assert st == 200, r
+    s = app.state()
+    assert s["monitor"]["record"] and s["rec"]["on"], s["rec"]
+    assert any("Gravando a janela do TeamSpeak" in x for x in logs(app)), logs(app)
+    time.sleep(1.5)
+    entra()
+    assert wait(lambda: mock.sent, 5)
+    sent_at = time.time()
+    hm = time.strftime("%H:%M:%S")
+    # O TS mostra a mensagem enviada e a resposta no chat privado.
+    app.set_tswin("Chat privado com x3tBot Kalibra\n<18:00:00> x3tBot Kalibra: Bem-vindo!\n"
+                  f"<{hm}> \"Real Calvon\": !next C1\n<{hm}> \"x3tBot Kalibra\": Você está no next de C1.")
+    assert wait(lambda: app.mon()["phase"] == "sent", 3)
+    time.sleep(1)
+    s = app.state()
+    assert s["rec"]["on"], "parou de gravar logo depois de enviar (devia continuar ~10 s)"
+    assert wait(lambda: not app.state()["rec"]["on"], 15), app.state()["rec"]
+    tail = time.time() - sent_at
+    assert 9.5 <= tail <= 13.5, f"continuou gravando {tail:.1f}s depois de enviar"
+    assert wait(lambda: any("Gravação salva" in x for x in logs(app)), 3), logs(app)
+    vids = app.videos()
+    assert len(vids) == 1 and re.search(r"\d{4}-\d\d-\d\d_\d\d-\d\d-\d\d_C1\.avi$", vids[0]), vids
+    dur, st = probe(vids[0])
+    assert 12 <= dur <= 17, f"duração {dur}"
+    assert st["pts"][-1] >= dur - 1.5, (st["pts"][-5:], dur)  # tem imagem até o fim (relógio da faixa muda)
+    assert st["width"] == 1000 and st["height"] == 640 + 3 * 20 + 12, st
+    assert os.path.getsize(vids[0]) < 3_000_000, os.path.getsize(vids[0])  # quadros iguais não ocupam espaço
+    assert app.state()["rec"]["last"] == os.path.basename(vids[0])
+    if PRINTS:
+        frame_png(vids[0], 3, os.path.join(PRINTS, "video-depois-do-envio.png"))
+
+
+@scenario
+def t59_gravacao_ts_minimizado_e_volta(app):
+    connected(app)
+    mock.set_desc(desc(*OUTRAS))
+    app.set_tswin("min")
+    app.start("C1", rec=True)
+    assert wait(lambda: any("minimizado" in x for x in logs(app)), 3), logs(app)
+    assert "minimizado" in app.state()["rec"]["note"], app.state()["rec"]
+    if PRINTS:
+        time.sleep(0.6)
+    app.set_tswin("Chat privado com x3tBot Kalibra")
+    assert wait(lambda: any("voltei a ver a janela" in x for x in logs(app)), 3), logs(app)
+    assert app.state()["rec"]["note"] == ""
+    time.sleep(0.5)
+    app.api("stop", {})
+    assert wait(lambda: not app.state()["rec"]["on"], 5), "não terminou a gravação depois do Parar"
+    vids = app.videos()
+    dur, st = probe(vids[0])
+    assert dur >= 2, dur
+    assert st["width"] == 1280, st  # começou sem janela: tamanho padrão
+    if PRINTS:
+        frame_png(vids[0], dur - 0.3, os.path.join(PRINTS, "video-ts-minimizado.png"))
+
+
+@scenario
+def t60_sem_gravacao_nao_cria_video(app):
+    connected(app)
+    mock.set_desc(desc(*OUTRAS))
+    app.start("C1")
+    time.sleep(1)
+    entra()
+    assert wait(lambda: app.mon()["phase"] == "sent", 5)
+    time.sleep(1)
+    assert not app.videos() and not app.state()["rec"]["on"] and not app.mon()["record"]
+
+
+@scenario
+def t61_fechar_app_gravando_salva_o_video(app):
+    connected(app)
+    mock.set_desc(desc(*OUTRAS))
+    app.start("C1", rec=True)
+    time.sleep(2.2)
+    st, _ = app.api("quit", {})
+    assert st == 200
+    assert wait(lambda: app.p.poll() is not None, 8), "app não fechou"
+    vids = app.videos()
+    assert len(vids) == 1
+    dur, _ = probe(vids[0])
+    assert dur >= 2, dur
+    with open(vids[0], "rb") as f:
+        assert b"idx1" in f.read(), "vídeo sem índice (não terminou de salvar)"
+
+
+@scenario
+def t62_opcoes_lembradas_e_teste_grava(app):
+    connected(app)
+    mock.set_desc(desc(*OUTRAS))
+    app.start("C1", test=True, wait=True, rec=True)
+    time.sleep(1)
+    entra()
+    assert wait(lambda: app.mon()["phase"] == "tested", 5)
+    assert app.state()["rec"]["on"], "modo teste também deve gravar até 10 s depois"
+    assert wait(lambda: not app.state()["rec"]["on"], 14)
+    vids = app.videos()
+    assert len(vids) == 1 and vids[0].endswith("_C1_teste.avi"), vids
+    probe(vids[0])
+    app.close()
+    app2 = App(app.data)
+    try:
+        assert wait(lambda: app2.state()["connected"], 6)
+        s = app2.state()
+        assert s["waitGiveUp"] is True and s["record"] is True, s
+    finally:
+        app2.close()
+
+
+@scenario
+def t63_nova_gravacao_nao_apaga_a_anterior(app):
+    connected(app)
+    mock.set_desc(desc(*OUTRAS))
+    app.start("C1", rec=True)
+    time.sleep(1.2)
+    app.api("stop", {})
+    app.start("C1", rec=True)  # começa outra logo em seguida (a anterior ainda terminando)
+    time.sleep(1.2)
+    app.api("stop", {})
+    assert wait(lambda: not app.state()["rec"]["on"], 6)
+    time.sleep(0.5)
+    vids = app.videos()
+    assert len(vids) == 2, vids
+    for v in vids:
+        probe(v)
 
 
 print()

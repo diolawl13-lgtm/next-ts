@@ -246,6 +246,12 @@ select:disabled { cursor: default; }
 .planline span.gone { text-decoration: line-through; opacity: .6; }
 .calc { margin-top: 8px; padding: 6px 8px; font-size: 12px; font-weight: bold; color: #3b2a16; background: rgba(216,178,90,.25); border: 1px solid rgba(138,106,42,.6); }
 .status.failed, .status.ended, .status.stopped { box-shadow: inset 1px 1px 0 #fff4d6, 0 0 0 2px #3d3426, 0 0 0 3px #0a0907, 0 0 0 5px #8a7a5a; }
+.recline { margin-top: 8px; padding: 6px 8px; font-size: 12px; font-weight: bold; color: #5e1a1a; background: rgba(217,73,63,.12); border: 1px solid rgba(142,43,43,.45); }
+.recline .dot { display: inline-block; width: 9px; height: 9px; margin-right: 6px; border-radius: 50%; background: #d9342b; box-shadow: 0 0 0 1px #000; vertical-align: 0; animation: pulse .6s ease-in-out infinite alternate; }
+.recline.saved { color: #2c5a1a; background: rgba(79,179,74,.14); border-color: rgba(44,101,34,.45); }
+.recline .warn { display: block; margin-top: 3px; color: #a05a00; }
+.recline button.link { color: #2a5c9a; margin-left: 6px; }
+.subopt { margin: 6px 0 0 23px; }
 .hidden { display: none !important; }
 </style>
 </head>
@@ -351,7 +357,7 @@ select:disabled { cursor: default; }
       <input type="text" id="codeB" class="hidden codeIn" maxlength="6" autocomplete="off" spellcheck="false" placeholder="Digite o código, ex.: D7">
       <div class="hint" id="codeNameB">&nbsp;</div>
       <div class="live blank" id="liveB">&nbsp;</div>
-      <div class="hint">Só é usado se o Plano A falhar: pegaram o next antes ou o horário ficou fora da janela. Depois não volta para o A.</div>
+      <div class="hint">Só é usado se o Plano A falhar: pegaram o next antes (e não desistiram, com a opção de esperar ligada) ou o horário ficou fora da janela. Depois não volta para o A.</div>
     </div>
   </div>
   <label class="check"><input type="checkbox" id="windowOn">
@@ -362,10 +368,18 @@ select:disabled { cursor: default; }
   </div>
   <div class="hint" id="winHint">&nbsp;</div>
   <div class="clock">Relógio do PC: <b id="clock">--:--:--</b></div>
+  <label class="check"><input type="checkbox" id="waitGiveUp">
+    <span>Esperar o next desistir
+    <small>Se alguém entrar na hunt e já tiver next, não desiste na hora: espera o next sair da fila e então manda. Se em vez disso o next entrar na hunt, o plano falha.</small></span></label>
+  <label class="check"><input type="checkbox" id="record">
+    <span>Gravar vídeo da janela do TeamSpeak
+    <small>5 quadros por segundo, do Iniciar até 10 s depois de enviar, com o relógio e os acontecimentos numa faixa embaixo. Os vídeos nunca são apagados.</small></span></label>
+  <div class="wait-hint subopt hidden" id="recHint">Antes de Iniciar: no TeamSpeak, deixe <b>aberto e selecionado o chat privado com o bot</b> (para o "!next" aparecer no vídeo) e <b>não minimize</b> o TS. Ele pode ficar atrás do Tibia.</div>
+  <div class="subopt"><button class="link" id="openRec" type="button">Abrir pasta das gravações</button></div>
   <label class="check"><input type="checkbox" id="testMode">
     <span>Modo teste
     <small>Faz tudo, mas não envia nada. Bom para conferir na primeira vez.</small></span></label>
-  <div class="rules">Só <b>1º next</b>. O app só pega quando <b>alguém entra na hunt</b> depois que você clica em Iniciar; quem já estava lá antes ele não pega.</div>
+  <div class="rules">Só <b>1º next</b>. O app só pega quando <b>alguém entra na hunt</b> depois que você clica em Iniciar; quem já estava lá antes ele não pega. Com "esperar o next desistir", também pega quando o next de quem entrou sai da fila.</div>
   <div class="preview" id="preview"></div>
 </section>
 
@@ -381,6 +395,7 @@ select:disabled { cursor: default; }
   <div id="lineBox" class="lineBox hidden"></div>
   <div id="calc" class="calc hidden"></div>
   <div class="meta" id="meta"></div>
+  <div id="recLine" class="recline hidden"></div>
 </section>
 
 <section class="card">
@@ -460,6 +475,7 @@ function heroMood(S) {
   const m = S.monitor;
   if (m.running && m.phase === "pending") return ["É agora!!", "tense"];
   if (m.running && m.phase === "waitingts") return ["Cadê o TeamSpeak?", "sob"];
+  if (m.running && m.waitingFor) return ["Desiste do next, vai...", "sob"];
   if (m.running) return ["De olho no " + m.code + "...", "sob"];
   if (m.phase === "failed") return ["Não deu dessa vez...", "sob"];
   if (m.phase === "ended") return ["Acabou a janela...", "sob"];
@@ -473,7 +489,7 @@ function heroMood(S) {
 
 let S = null;                 // último estado vindo do app
 let catalog = [];
-let form = { handler: 0, cid: 0, botUID: "", code: "C1", codeB: "", windowOn: false, windowStart: "20:00", windowEnd: "22:30", testMode: false };
+let form = { handler: 0, cid: 0, botUID: "", code: "C1", codeB: "", windowOn: false, windowStart: "20:00", windowEnd: "22:30", testMode: false, waitGiveUp: false, record: false };
 let syncLists = true;         // próxima leitura copia canal/bot escolhidos pelo app
 let firstState = true;
 let busy = false;
@@ -560,10 +576,12 @@ function renderForm() {
     pv.append(form.testMode ? "Modo teste: mostraria " : "Vai enviar ");
     const c = document.createElement("code"); c.textContent = "!next " + ci.c; pv.append(c);
     if (hasB) { pv.append(" (ou "); const c2 = document.createElement("code"); c2.textContent = "!next " + ciB.c; pv.append(c2, " no Plano B)"); }
-    pv.append(" para " + bn + ", uma única vez, quando alguém entrar na hunt" + (form.windowOn && !badWin ? " e a sua hunt for começar entre " + form.windowStart + " e " + form.windowEnd : "") + ".");
+    pv.append(" para " + bn + ", uma única vez, quando alguém entrar na hunt" + (form.waitGiveUp ? " (se já tiver next, quando ele desistir)" : "") + (form.windowOn && !badWin ? " e a sua hunt for começar entre " + form.windowStart + " e " + form.windowEnd : "") + ".");
+    if (form.record) pv.append(" Grava vídeo da janela do TeamSpeak.");
   } else {
     pv.append(!bn ? "Escolha acima quem recebe o comando." : badB ? "Arrume o Plano B ou escolha \"Sem Plano B\"." : "Escolha o respawn do Plano A.");
   }
+  $("recHint").classList.toggle("hidden", !form.record || !!running);
   const go = $("go");
   if (running) { go.className = "stop"; go.textContent = "Parar"; go.disabled = false; }
   else { go.className = "start"; go.textContent = form.testMode ? "Iniciar teste" : "Iniciar"; go.disabled = !connected || !ci.ok || !bn || !form.cid || badB || badWin || busy; }
@@ -621,10 +639,12 @@ function render() {
     else if (catalog.some(r => r.code === form.codeB)) $("codeSelB").value = form.codeB;
     else { $("codeSelB").value = "__other"; $("codeB").classList.remove("hidden"); }
     $("windowOn").checked = form.windowOn; $("winStart").value = form.windowStart; $("winEnd").value = form.windowEnd;
+    form.waitGiveUp = !!S.waitGiveUp; form.record = !!S.record;
+    $("waitGiveUp").checked = form.waitGiveUp; $("record").checked = form.record;
     $("port").value = S.port || 25639;
     $("remember").checked = S.hasSavedKey ? true : S.remember !== false;
   }
-  for (const id of ["server", "channel", "bot", "code", "codeSel", "codeB", "codeSelB", "windowOn", "testMode", "savePreset"]) $(id).disabled = S.monitor.running;
+  for (const id of ["server", "channel", "bot", "code", "codeSel", "codeB", "codeSelB", "windowOn", "testMode", "waitGiveUp", "record", "savePreset"]) $(id).disabled = S.monitor.running;
   if ($("clock").textContent !== S.now) $("clock").textContent = S.now || "--:--:--";
   renderForm();
 
@@ -649,7 +669,7 @@ function render() {
   const sum = $("summary");
   if (m.running) {
     sum.classList.remove("hidden");
-    sum.textContent = (m.testMode ? "Modo teste · " : "") + "1º next · comando para " + botName(S.botUID) + (m.window ? " · janela " + m.window : " · sem janela de horário") + " · relógio " + S.now;
+    sum.textContent = (m.testMode ? "Modo teste · " : "") + "1º next" + (m.waitGiveUp ? " · espera o next desistir" : "") + " · comando para " + botName(S.botUID) + (m.window ? " · janela " + m.window : " · sem janela de horário") + " · relógio " + S.now;
   } else sum.classList.add("hidden");
   const pl = $("planline");
   const showPlans = m.codeA && (m.running || ["sent", "tested", "failed", "ended", "stopped", "error"].includes(m.phase));
@@ -685,6 +705,28 @@ function render() {
     sp.textContent = "A lista mudou pela última vez há " + fmtSecs(m.secondsSinceChange) + ".";
     if (m.secondsSinceChange > 600) { sp.className = "warn"; sp.textContent += " Se o bot da lista estiver funcionando, clique no canal da lista no TeamSpeak."; }
     meta.append(sp);
+  }
+
+  // Gravação
+  const rl = $("recLine"), rec = S.rec || {};
+  let recSig = "";
+  if (rec.on) recSig = "on|" + rec.file + "|" + fmtSecs(rec.seconds || 0) + "|" + rec.mb + "|" + (rec.note || "");
+  else if (rec.last && m.record) recSig = "saved|" + rec.last;
+  if (rl.dataset.sig !== recSig) {
+    rl.dataset.sig = recSig; rl.textContent = "";
+    rl.classList.toggle("hidden", !recSig);
+    rl.classList.toggle("saved", !rec.on);
+    if (rec.on) {
+      const d = document.createElement("span"); d.className = "dot";
+      rl.append(d, "Gravando: " + rec.file + " · " + fmtSecs(rec.seconds || 0) + " · " + (rec.mb || 0) + " MB");
+      if (!m.running) rl.append(" (termina em instantes)");
+      if (rec.note) { const w = document.createElement("span"); w.className = "warn"; w.textContent = rec.note; rl.append(w); }
+    } else if (recSig) {
+      rl.append("Vídeo salvo: " + rec.last);
+      const b = document.createElement("button"); b.type = "button"; b.className = "link"; b.textContent = "Abrir pasta";
+      b.onclick = () => action(() => api("openrec", {}));
+      rl.append(b);
+    }
   }
 
   // Histórico
@@ -859,12 +901,16 @@ for (const [id, key] of [["winStart", "windowStart"], ["winEnd", "windowEnd"]]) 
   $(id).addEventListener("change", () => { $(id).value = form[key] = tidyHM($(id).value); renderForm(); });
 }
 $("testMode").onchange = () => { form.testMode = $("testMode").checked; renderForm(); };
+$("waitGiveUp").onchange = () => { form.waitGiveUp = $("waitGiveUp").checked; renderForm(); };
+$("record").onchange = () => { form.record = $("record").checked; renderForm(); };
+$("openRec").onclick = () => action(() => api("openrec", {}));
 $("go").onclick = () => action(async () => {
   if (S.monitor.running) { await api("stop", {}); return; }
   const ci = codeInfo(form.code);
   const ciB = codeInfo(form.codeB);
   await api("start", { handler: form.handler, cid: form.cid, botUID: form.botUID, code: ci.c, codeB: form.codeB ? ciB.c : "",
-    windowOn: form.windowOn, windowStart: form.windowStart, windowEnd: form.windowEnd, testMode: form.testMode });
+    windowOn: form.windowOn, windowStart: form.windowStart, windowEnd: form.windowEnd, testMode: form.testMode,
+    waitGiveUp: form.waitGiveUp, record: form.record });
 });
 $("quit").onclick = async () => {
   if (S && S.monitor.running && !confirm("O monitoramento está ligado. Fechar mesmo assim?")) return;

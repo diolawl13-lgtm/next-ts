@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -12,7 +14,7 @@ import (
 	"unicode"
 )
 
-// Regras pedidas (versão 1.3):
+// Regras pedidas (versão 1.4):
 //   - verifica a lista a cada 0,5 s;
 //   - só pega o 1º next, e só quando ALGUÉM ENTRA na hunt (o que já estava lá
 //     quando você clicou em Iniciar não é pego);
@@ -20,8 +22,12 @@ import (
 //   - janela de início (opcional): hora atual + tempo que falta tem que cair na janela;
 //   - Plano A falhou (pegaram o next antes, ou o horário ficou fora da janela):
 //     passa para o Plano B e não volta. Plano B falhou: para;
+//   - "Esperar o next desistir" (opcional): se alguém entra na hunt e já tem next,
+//     não falha na hora. Espera o next sair da fila e então envia. Se em vez disso
+//     o next entrar na hunt (não desistiu), aí o plano falha;
 //   - espera de 1 s a 2 s (aleatório), confere de novo e envia;
-//   - envia UMA ÚNICA VEZ e para.
+//   - envia UMA ÚNICA VEZ e para;
+//   - gravação (opcional) da janela do TS em vídeo, do Iniciar até 10 s depois de enviar.
 const (
 	PollInterval = 500 * time.Millisecond
 	DelayMin     = 1000 * time.Millisecond
@@ -56,6 +62,9 @@ type MonitorView struct {
 	SecondsSince int    `json:"secondsSinceChange"` // desde a última mudança da lista
 	PendingMs    int    `json:"pendingMs"`          // falta para enviar (se aguardando)
 	StartedAt    string `json:"startedAt"`
+	WaitGiveUp   bool   `json:"waitGiveUp"` // opção "esperar o next desistir" ligada
+	WaitingFor   string `json:"waitingFor"` // esperando esta pessoa desistir do next (vazio = não)
+	Record       bool   `json:"record"`     // gravando em vídeo
 	lastChange   time.Time
 	lastDesc     string
 	pendingAt    time.Time
@@ -92,6 +101,7 @@ type App struct {
 	log   []LogEntry
 	notif chan Notify
 	rng   *rand.Rand
+	rec   *Recorder
 }
 
 func NewApp(store *Store) *App {
@@ -99,8 +109,15 @@ func NewApp(store *Store) *App {
 	a.set = store.Load()
 	a.mon.Phase = "idle"
 	a.mon.Code = a.set.Code
+	a.rec = NewRecorder(filepath.Join(store.dir, "gravacoes"), func(kind, text string) { a.Log(kind, "%s", text) })
 	go a.notifyLoop()
 	return a
+}
+
+// Shutdown: o app vai fechar. Para tudo e termina de salvar a gravação.
+func (a *App) Shutdown() {
+	a.Stop("App fechado.")
+	a.rec.Close()
 }
 
 func (a *App) addLog(kind, format string, args ...any) {
@@ -110,6 +127,9 @@ func (a *App) addLog(kind, format string, args ...any) {
 		a.log = a.log[len(a.log)-logLimit:]
 	}
 	fileLog("[%s] %s", kind, e.Text)
+	if a.rec != nil {
+		a.rec.Event(kind, e.Time, e.Text)
+	}
 }
 
 func (a *App) Log(kind, format string, args ...any) {
@@ -513,6 +533,8 @@ type StartParams struct {
 	WindowStart string `json:"windowStart"`
 	WindowEnd   string `json:"windowEnd"`
 	TestMode    bool   `json:"testMode"`
+	WaitGiveUp  bool   `json:"waitGiveUp"` // esperar o next desistir
+	Record      bool   `json:"record"`     // gravar a janela do TS em vídeo
 }
 
 type runParams struct {
@@ -589,13 +611,14 @@ func (a *App) Start(p StartParams) error {
 	if p.WindowOn {
 		a.set.WindowStart, a.set.WindowEnd = p.WindowStart, p.WindowEnd
 	}
+	a.set.WaitGiveUp, a.set.Record = p.WaitGiveUp, p.Record
 	a.saveSettings()
 
 	a.runs++
 	rp.id = a.runs
 	ctx, cancel := context.WithCancel(context.Background())
 	a.mon = MonitorView{Running: true, Phase: "watching", Code: code, Plan: "A", CodeA: code, CodeB: codeB, Window: win.Text,
-		TestMode: p.TestMode, Status: "Lendo a lista...", StartedAt: now().Format("15:04:05"), cancel: cancel, runID: rp.id}
+		TestMode: p.TestMode, WaitGiveUp: p.WaitGiveUp, Status: "Lendo a lista...", StartedAt: now().Format("15:04:05"), cancel: cancel, runID: rp.id}
 	extra := ""
 	if codeB != "" {
 		extra += " Plano B: " + codeB + "."
@@ -603,8 +626,33 @@ func (a *App) Start(p StartParams) error {
 	if win.On {
 		extra += " Só pego se a hunt começar entre " + win.Text + "."
 	}
+	if p.WaitGiveUp {
+		extra += " Se já tiver next, espero ele desistir."
+	}
 	if p.TestMode {
 		extra += " MODO TESTE: não vai enviar nada."
+	}
+	if p.Record {
+		hdr := "Plano A " + code
+		if codeB != "" {
+			hdr += " · Plano B " + codeB
+		}
+		if win.On {
+			hdr += " · janela " + win.Text
+		}
+		if p.WaitGiveUp {
+			hdr += " · espera o next desistir"
+		}
+		hdr += " · comando para " + rp.botName
+		if p.TestMode {
+			hdr += " · MODO TESTE"
+		}
+		if file, err := a.rec.Begin(code, hdr, p.TestMode); err != nil {
+			a.addLog("warn", "Não consegui começar a gravação (%s). O monitoramento continua, sem gravar.", err.Error())
+		} else {
+			a.mon.Record = true
+			a.addLog("info", "Gravando a janela do TeamSpeak em vídeo: %s", file)
+		}
 	}
 	a.addLog("info", "Iniciado: Plano A %s, 1º next.%s", code, extra)
 	go a.run(ctx, rp)
@@ -628,7 +676,9 @@ func (a *App) Stop(reason string) {
 	a.mon.PendingMs = 0
 	a.mon.pendingAt = time.Time{}
 	a.mon.Status = "Parado. Nada foi enviado."
+	a.mon.WaitingFor = ""
 	a.addLog("info", "%s Nada foi enviado.", reason)
+	a.rec.End(RecTailOther)
 }
 
 // update altera a visão só se esta execução ainda for a atual.
@@ -655,7 +705,14 @@ func (a *App) finish(id int, phase, status, kind, logText string) {
 	a.mon.Status = status
 	a.mon.PendingMs = 0
 	a.mon.pendingAt = time.Time{}
+	a.mon.WaitingFor = ""
 	a.addLog(kind, "%s", logText)
+	// Gravação: depois de enviar (ou do teste), continua mais 10 s para pegar a resposta do bot.
+	if phase == "sent" || phase == "tested" {
+		a.rec.End(RecTailSent)
+	} else {
+		a.rec.End(RecTailOther)
+	}
 }
 
 func (a *App) randomDelay() time.Duration {
@@ -671,6 +728,38 @@ type planState struct {
 	lastKey      string // quem estava caçando na última leitura com alguém (não esquece quando fica livre)
 	lastRem      int
 	lastHasTimer bool
+	// "Esperar o next desistir": a hunt que estou olhando e quem está no next dela.
+	waitKey  string
+	waitNext string
+	// Quem acabou de "desistir". Se essa pessoa aparecer entrando na hunt logo depois
+	// (a lista mostrou um instante sem o next na troca), ela não desistiu de verdade.
+	gaveUp string
+}
+
+// sameParty: a pessoa (ou dupla "A / B") que entrou na hunt é a mesma que estava no next.
+func sameParty(hunter, next string) bool {
+	names := func(s string) map[string]bool {
+		out := map[string]bool{}
+		for _, part := range strings.Split(s, "/") {
+			var b strings.Builder
+			for _, r := range strings.ToLower(part) {
+				if unicode.IsLetter(r) || unicode.IsDigit(r) {
+					b.WriteRune(r)
+				}
+			}
+			if b.Len() > 0 {
+				out[b.String()] = true
+			}
+		}
+		return out
+	}
+	nx := names(next)
+	for n := range names(hunter) {
+		if nx[n] {
+			return true
+		}
+	}
+	return false
 }
 
 // huntKey identifica "quem está na hunt": muda quando alguém novo entra.
@@ -737,6 +826,10 @@ func (a *App) run(ctx context.Context, p runParams) {
 	waiting := func(st QueueState) string {
 		t := now()
 		switch {
+		case ps.waitKey != "" && !st.Present:
+			return ps.code + " ficou livre. Continuo esperando " + ps.waitNext + " desistir do next (ou alguém novo entrar na hunt)."
+		case ps.waitKey != "":
+			return describe(st, t) + " Esperando o next desistir."
 		case !st.Present:
 			return ps.code + " está livre. Esperando alguém entrar na hunt."
 		case st.Count > 0:
@@ -744,6 +837,54 @@ func (a *App) run(ctx context.Context, p runParams) {
 		default:
 			return describe(st, t) + " Esse eu não pego: espero a próxima pessoa entrar na hunt."
 		}
+	}
+	// startWait: a hunt `k` tem alguém no next; com a opção ligada, espero ele desistir.
+	startWait := func(st QueueState, k string) {
+		ps.waitKey, ps.waitNext = k, st.First
+		a.update(p.id, func(m *MonitorView) { m.Status = waiting(st) })
+	}
+	// schedule: o 1º next está livre agora. Confere a janela e marca o envio (1 a 2 s).
+	// Devolve (acabou, reprocessar) como o step.
+	schedule := func(st QueueState, k, what string) (bool, bool) {
+		t := now()
+		calc := ""
+		if st.HasTimer {
+			calc = fmt.Sprintf("Agora %s + falta %s = sua hunt começaria às %s", t.Format("15:04"), FmtHM(st.Remaining), endsAt(st, t))
+		}
+		if p.win.On {
+			if !st.HasTimer {
+				a.Log("warn", "%s, mas não consegui ler o tempo que falta na linha. Sem ele não dá para conferir a janela, então não envio. Continuo vigiando.", what)
+				a.update(p.id, func(m *MonitorView) { m.Status = waiting(st) })
+				return false, false
+			}
+			start := t.Add(time.Duration(st.Remaining) * time.Minute)
+			if !p.win.Contains(start) {
+				c := calc + " → fora da janela " + p.win.Text
+				a.update(p.id, func(m *MonitorView) { m.Calc = c })
+				if fail(fmt.Sprintf("%s. %s.", what, c)) {
+					return true, false
+				}
+				return false, true
+			}
+			calc += " → dentro da janela " + p.win.Text
+		}
+		d := a.randomDelay()
+		detectedAt = time.Now()
+		timer = time.NewTimer(d)
+		timerC = timer.C
+		fireTries = 0
+		entryKey = k
+		at := detectedAt.Add(d)
+		a.update(p.id, func(m *MonitorView) {
+			m.Phase, m.pendingAt, m.Calc = "pending", at, calc
+			m.Status = "Disponível! Enviando em instantes..."
+		})
+		msg := what + "!"
+		if calc != "" {
+			msg += " " + calc + "."
+		}
+		a.Log("info", "%s Enviando o 1º next em %s s...", msg, secs(d))
+		return false, false
 	}
 
 	// step trata uma leitura da lista para o plano atual. Devolve (acabou, reprocessar).
@@ -790,6 +931,12 @@ func (a *App) run(ctx context.Context, p runParams) {
 				cancelPending("o respawn ficou livre antes do envio.")
 			case entered:
 				cancelPending("entrou outra pessoa na hunt antes do envio.")
+			case st.Count > 0 && p.WaitGiveUp:
+				stopTimer()
+				backToWatching()
+				a.Log("warn", "Envio cancelado: %s pegou o next antes de mim. Vou esperar o next desistir (Plano %s, %s).", st.First, letter(), ps.code)
+				startWait(st, entryKey)
+				return false, false
 			case st.Count > 0:
 				if fail(st.First + " pegou o next antes de mim.") {
 					return true, false
@@ -800,56 +947,76 @@ func (a *App) run(ctx context.Context, p runParams) {
 				return false, false
 			}
 		}
+		// Esperando o next desistir.
+		if ps.waitKey != "" {
+			if entered {
+				// Entrou alguém na hunt. Se foi quem estava no next, ele não desistiu: falhou.
+				who, nextWas := Hunter(st), ps.waitNext
+				ps.waitKey, ps.waitNext = "", ""
+				if sameParty(who, nextWas) {
+					if fail(nextWas + " não desistiu do next e entrou na hunt.") {
+						return true, false
+					}
+					return false, true
+				}
+				// Outra pessoa: é uma hunt nova (segue abaixo, como qualquer entrada).
+			} else {
+				if !st.Present {
+					a.update(p.id, func(m *MonitorView) { m.Status = waiting(st) }) // ficou livre: não é falha
+					return false, false
+				}
+				if st.Count > 0 {
+					if st.First != ps.waitNext {
+						a.Log("info", "Fila do %s mudou: agora %s está no next. Continuo esperando o next desistir.", ps.code, st.First)
+					}
+					ps.waitNext = st.First
+					a.update(p.id, func(m *MonitorView) { m.Status = waiting(st) })
+					return false, false
+				}
+				// O next ficou vazio: desistiu!
+				ps.gaveUp = ps.waitNext
+				ps.waitKey, ps.waitNext = "", ""
+				return schedule(st, k, fmt.Sprintf("%s desistiu do next de %s (Plano %s)", ps.gaveUp, ps.code, letter()))
+			}
+		}
 		if !entered {
 			a.update(p.id, func(m *MonitorView) { m.Status = waiting(st) })
 			return false, false
 		}
 		// Alguém entrou na hunt.
 		hunter := Hunter(st)
-		if st.Count > 0 {
-			if fail(hunter + " entrou na hunt, mas " + st.First + " já pegou o next antes de mim.") {
-				return true, false
-			}
-			return false, true
-		}
-		calc := ""
-		if st.HasTimer {
-			calc = fmt.Sprintf("Agora %s + falta %s = sua hunt começaria às %s", t.Format("15:04"), FmtHM(st.Remaining), endsAt(st, t))
-		}
-		if p.win.On {
-			if !st.HasTimer {
-				a.Log("warn", "%s entrou em %s, mas não consegui ler o tempo que falta na linha. Sem ele não dá para conferir a janela, então não envio. Continuo vigiando.", hunter, ps.code)
-				a.update(p.id, func(m *MonitorView) { m.Status = waiting(st) })
-				return false, false
-			}
-			start := t.Add(time.Duration(st.Remaining) * time.Minute)
-			if !p.win.Contains(start) {
-				c := calc + " → fora da janela " + p.win.Text
-				a.update(p.id, func(m *MonitorView) { m.Calc = c })
-				if fail(fmt.Sprintf("%s entrou na hunt. %s.", hunter, c)) {
+		if g := ps.gaveUp; g != "" {
+			ps.gaveUp = ""
+			if sameParty(hunter, g) {
+				if fail(g + " não desistiu do next: entrou na hunt.") {
 					return true, false
 				}
 				return false, true
 			}
-			calc += " → dentro da janela " + p.win.Text
 		}
-		d := a.randomDelay()
-		detectedAt = time.Now()
-		timer = time.NewTimer(d)
-		timerC = timer.C
-		fireTries = 0
-		entryKey = k
-		at := detectedAt.Add(d)
-		a.update(p.id, func(m *MonitorView) {
-			m.Phase, m.pendingAt, m.Calc = "pending", at, calc
-			m.Status = "Disponível! Enviando em instantes..."
-		})
-		msg := fmt.Sprintf("%s entrou em %s (Plano %s)!", hunter, ps.code, letter())
-		if calc != "" {
-			msg += " " + calc + "."
+		if st.Count > 0 {
+			if !p.WaitGiveUp {
+				if fail(hunter + " entrou na hunt, mas " + st.First + " já pegou o next antes de mim.") {
+					return true, false
+				}
+				return false, true
+			}
+			// Esperar o next desistir. Se a hunt já começa fora da janela, nem adianta esperar.
+			if p.win.On && st.HasTimer {
+				if start := t.Add(time.Duration(st.Remaining) * time.Minute); !p.win.Contains(start) {
+					c := fmt.Sprintf("Agora %s + falta %s = sua hunt começaria às %s → fora da janela %s", t.Format("15:04"), FmtHM(st.Remaining), endsAt(st, t), p.win.Text)
+					a.update(p.id, func(m *MonitorView) { m.Calc = c })
+					if fail(fmt.Sprintf("%s entrou na hunt (com %s no next). %s.", hunter, st.First, c)) {
+						return true, false
+					}
+					return false, true
+				}
+			}
+			a.Log("info", "%s entrou em %s (Plano %s), mas %s já está no next. Vou esperar o next desistir.", hunter, ps.code, letter(), st.First)
+			startWait(st, k)
+			return false, false
 		}
-		a.Log("info", "%s Enviando o 1º next em %s s...", msg, secs(d))
-		return false, false
+		return schedule(st, k, fmt.Sprintf("%s entrou em %s (Plano %s)", hunter, ps.code, letter()))
 	}
 
 	ticker := time.NewTicker(PollInterval)
@@ -872,6 +1039,7 @@ func (a *App) run(ctx context.Context, p runParams) {
 					return
 				}
 			}
+			a.update(p.id, func(m *MonitorView) { m.WaitingFor = ps.waitNext })
 		} else if timer != nil && fireTries == 0 {
 			// Sem leitura confiável agora: o envio só sai se a conferência final der certo.
 			a.update(p.id, func(m *MonitorView) { m.Status = "Conferindo a lista..." })
@@ -910,6 +1078,11 @@ func (a *App) run(ctx context.Context, p runParams) {
 			case huntKey(st) != entryKey:
 				backToWatching() // a próxima leitura trata quem entrou
 				a.Log("warn", "Envio cancelado: na conferência final já era outra pessoa na hunt do %s. Continuo vigiando.", ps.code)
+				continue
+			case st.Count > 0 && p.WaitGiveUp:
+				backToWatching()
+				a.Log("warn", "Envio cancelado: na conferência final %s já estava no next. Vou esperar o next desistir (Plano %s, %s).", st.First, letter(), ps.code)
+				startWait(st, entryKey)
 				continue
 			case st.Count > 0:
 				if fail(st.First + " pegou o next antes de mim.") {
@@ -1095,7 +1268,7 @@ func (a *App) send(ctx context.Context, p runParams, code string, waited time.Du
 	switch {
 	case err == nil:
 		a.finish(p.id, "sent", fmt.Sprintf("Enviado: \"%s\" para %s às %s.", message, p.botName, now().Format("15:04:05")),
-			"ok", fmt.Sprintf("ENVIADO \"%s\" para %s (%s s depois de a pessoa entrar na hunt). Monitoramento encerrado.", message, p.botName, secs(waited)))
+			"ok", fmt.Sprintf("ENVIADO \"%s\" para %s (%s s depois de a vaga de 1º next ficar livre). Monitoramento encerrado.", message, p.botName, secs(waited)))
 	case errors.As(err, new(*QueryError)):
 		a.finish(p.id, "error", "O TeamSpeak recusou o envio. Nada foi enviado.", "err", "O TeamSpeak recusou o envio: "+err.Error())
 	default:
@@ -1127,6 +1300,9 @@ type StateView struct {
 	WindowOn    bool          `json:"windowOn"`
 	WindowStart string        `json:"windowStart"`
 	WindowEnd   string        `json:"windowEnd"`
+	WaitGiveUp  bool          `json:"waitGiveUp"`
+	Record      bool          `json:"record"`
+	Rec         RecView       `json:"rec"`
 	Now         string        `json:"now"` // relógio usado (o do Windows)
 	Monitor     MonitorView   `json:"monitor"`
 	Log         []LogEntry    `json:"log"`
@@ -1135,6 +1311,7 @@ type StateView struct {
 }
 
 func (a *App) State() StateView {
+	rec := a.rec.View() // antes do a.mu (o gravador nunca espera o a.mu com o próprio travado)
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	m := a.mon
@@ -1154,9 +1331,19 @@ func (a *App) State() StateView {
 		AutoWaiting: a.autoWaiting && !a.autoBlocked && !(a.q != nil && a.q.Alive()), AutoBlocked: a.autoBlocked, Remember: a.set.Remember, Port: a.set.Port,
 		Servers: a.servers, Handler: a.handler, Channels: a.channels, Cid: a.cid, Clients: a.clients, BotUID: a.botUID,
 		Code: a.set.Code, CodeB: a.set.CodeB, WindowOn: a.set.WindowOn, WindowStart: a.set.WindowStart, WindowEnd: a.set.WindowEnd,
+		WaitGiveUp: a.set.WaitGiveUp, Record: a.set.Record, Rec: rec,
 		Now:     now().Format("15:04:05"),
 		Monitor: m, Log: logs, Presets: a.presetViews(), Version: Version,
 	}
+}
+
+// OpenRecDir abre a pasta das gravações no Explorador de Arquivos.
+func (a *App) OpenRecDir() error {
+	dir := a.rec.Dir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	return openFolder(dir)
 }
 
 func (a *App) ForgetKey() {
