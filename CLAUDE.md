@@ -29,7 +29,7 @@ O **Next TS** fica de olho na lista de claimeds que o x3tBot publica na **descri
 - A **1.4.0 (13/10/2026)** trouxe "esperar o next desistir" e gravação em vídeo.
 - A **1.4.1 (13/10/2026)** corrigiu a leitura do formato novo do x3tBot de 13/10 (tempo com espaços `[ 01:45 ]` e o estado `Aceitar`).
 - A **1.4.2 (13/10/2026)** trouxe a regra nova "pega quem já está caçando" e a gravação mais robusta. **Funcionou perfeitamente no TS real** (confirmado por mim em 13/10, com vídeo: `2026-10-13_20-00-12_D13_teste.avi`, janela do TS 2576x1408).
-- A versão atual é a **1.4.3 (13/10/2026)**: o vídeo mostra **só a janela do TS** (sem a faixa preta de baixo e sem bordas) e fica bem menor (o aviso rolando na barra do TS deixava ~6-7 GB/h). Testada no TS simulado, no Wine e com as imagens do meu vídeo real; ainda não testei no TS real.
+- A versão atual é a **1.4.3 (13/10/2026)**: o vídeo mostra **só a janela do TS** (sem a faixa preta de baixo e sem bordas) e fica bem menor. **VERSÃO FUNCIONAL: confirmada por mim no TS real em 14/10/2026.** No GitHub fica marcada com a etiqueta `v1.4.3-funcional`. Se algo der errado no futuro, é para esta versão que se volta.
 
 ---
 
@@ -201,7 +201,7 @@ O ZIP entregue tem: `Next-TS/Next TS.exe`, `Next-TS/LEIA-ME.txt` e `Next-TS/codi
 - **1.4.0 (13/10):** caixinha "Esperar o next desistir"; gravação em vídeo da janela do TS (5 quadros/s, faixa com relógio, até 10 s depois de enviar). 64 cenários aprovados; captura do Windows testada no Wine.
 - **1.4.1 (13/10):** correção do formato novo do x3tBot: tempo com espaços `[ 01:45 ]` (na 1.3.0 o app não pegou o next do C1 com a janela ligada: "não consegui ler o tempo") e estado `[ Aceitar ... ]` (não é entrada nem falha). 70 cenários aprovados.
 - **1.4.2 (13/10):** regra 2 nova: pega quem **já está** caçando sem next ao Iniciar (e na troca para o B), se a conta der dentro da janela; fora da janela ou com next, não falha e espera a próxima. Gravação: escolhe melhor a janela do TS, tenta 3 jeitos de copiar, anota tudo no `registro.txt`, avisa se o TS estiver como administrador. 76 cenários aprovados; captura testada no Wine também com o TS como outro programa. **Funcionou perfeitamente no TS real.**
-- **1.4.3 (13/10):** vídeo só com a janela do TS (sem faixa e sem bordas); o que se mexe sozinho (aviso rolando) atualiza a cada 2 s, o resto na hora (vídeo de ~6-7 GB/h para ~0,6-0,7 GB/h numa tela 2576x1408). 77 cenários aprovados. Pendente: uma tarja preta aparece sobre a barra de título do TS no vídeo real (canto de cima à esquerda); falta o `registro.txt` para saber qual jeito de copiar foi usado.
+- **1.4.3 (13/10):** vídeo só com a janela do TS (sem faixa e sem bordas); o que se mexe sozinho (aviso rolando) atualiza a cada 2 s, o resto na hora (vídeo de ~6-7 GB/h para ~0,6-0,7 GB/h numa tela 2576x1408). 77 cenários aprovados. **VERSÃO FUNCIONAL (confirmada no TS real em 14/10; etiqueta `v1.4.3-funcional`).** Pendente: uma tarja preta aparece sobre a barra de título do TS no vídeo real (canto de cima à esquerda); falta o `registro.txt` para saber qual jeito de copiar foi usado.
 
 ---
 
@@ -210,7 +210,7 @@ O ZIP entregue tem: `Next-TS/Next TS.exe`, `Next-TS/LEIA-ME.txt` e `Next-TS/codi
 - **Modo "só Enter" / envio "por escrito":** o app digitaria (ou só apertaria Enter) no chat privado do x3tBot em vez de mandar pelo ClientQuery. Eu disse "deixa pra depois" (de novo em 13/10). Riscos explicados: rouba o foco do Tibia, precisa da aba certa (senão vai para o canal), mexe no texto digitado. Para o bot e os outros membros, os dois jeitos são iguais.
 - Ideias que já foram sugeridas: aviso de "formato da lista mudou", botão "Copiar lista", favoritos, atalhos de teclado.
 - Achei desnecessário: acompanhar a fila e destacar a resposta do x3tBot.
-- Primeira coisa a fazer: **testar a 1.4.3 no TeamSpeak real**, em Modo teste primeiro, com a gravação ligada (conferir se o vídeo mostra a janela do TS e o "!next" no chat).
+- A 1.4.3 já foi testada no TS real e funciona. Ponto de partida para qualquer mudança: a etiqueta `v1.4.3-funcional`.
 
 ## 8. Coisas que ficaram de fora na conversa anterior
 
