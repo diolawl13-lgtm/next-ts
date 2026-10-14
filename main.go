@@ -265,9 +265,10 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Cid   int    `json:"cid"`
 			Code  string `json:"code"`
 			CodeB string `json:"codeB"`
+			CodeC string `json:"codeC"`
 		}
 		if err = readJSON(r, &body); err == nil {
-			writeJSON(w, s.app.Peek(body.Cid, body.Code, body.CodeB))
+			writeJSON(w, s.app.Peek(body.Cid, body.Code, body.CodeB, body.CodeC))
 			return
 		}
 	case "/api/start":
@@ -305,6 +306,20 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.app.ForgetKey()
 	case "/api/openrec":
 		err = s.app.OpenRecDir()
+	case "/api/openvideo":
+		err = s.app.OpenLastVideo()
+	case "/api/fav/save":
+		var f Favorite
+		if err = readJSON(r, &f); err == nil {
+			err = s.app.SaveFavorite(f)
+		}
+	case "/api/fav/delete":
+		var body struct {
+			Name string `json:"name"`
+		}
+		if err = readJSON(r, &body); err == nil {
+			err = s.app.DeleteFavorite(body.Name)
+		}
 	case "/api/bye":
 		s.mu.Lock()
 		s.byeAt = time.Now()

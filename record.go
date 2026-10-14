@@ -408,6 +408,7 @@ type RecView struct {
 	MB      int    `json:"mb"`      // tamanho em MB
 	Dir     string `json:"dir"`     // pasta das gravações
 	Last    string `json:"last"`    // última gravação terminada (nome)
+	HasLast bool   `json:"hasLast"` // tem algum vídeo para abrir
 }
 
 type recSession struct {
@@ -424,18 +425,44 @@ type recSession struct {
 }
 
 type Recorder struct {
-	mu   sync.Mutex
-	dir  string
-	cur  *recSession
-	n    int
-	last string
-	logf func(kind, text string) // avisa o histórico do app (nunca chamado com mu travado)
+	mu       sync.Mutex
+	dir      string
+	cur      *recSession
+	n        int
+	last     string                  // nome da última gravação terminada
+	lastPath string                  // caminho completo dela
+	logf     func(kind, text string) // avisa o histórico do app (nunca chamado com mu travado)
 	// capture pega a imagem da janela do TS (trocável nos testes).
 	capture func() (*image.RGBA, capState)
 }
 
 func NewRecorder(dir string, logf func(kind, text string)) *Recorder {
-	return &Recorder{dir: dir, logf: logf, capture: captureTS}
+	r := &Recorder{dir: dir, logf: logf, capture: captureTS}
+	r.lastPath = newestVideo(dir) // a última gravação de antes de abrir o app
+	return r
+}
+
+// newestVideo acha o vídeo mais novo da pasta ("" se não tiver nenhum).
+func newestVideo(dir string) string {
+	fs, _ := filepath.Glob(filepath.Join(dir, "*.avi"))
+	best, bestT := "", time.Time{}
+	for _, f := range fs {
+		if fi, err := os.Stat(f); err == nil && fi.ModTime().After(bestT) {
+			best, bestT = f, fi.ModTime()
+		}
+	}
+	return best
+}
+
+// LastVideo devolve o caminho da última gravação terminada ("" se não tiver).
+func (r *Recorder) LastVideo() string {
+	r.mu.Lock()
+	p := r.lastPath
+	r.mu.Unlock()
+	if p != "" && fileExists(p) {
+		return p
+	}
+	return newestVideo(r.dir)
 }
 
 func (r *Recorder) Dir() string { return r.dir }
@@ -501,7 +528,7 @@ func (r *Recorder) Close() {
 func (r *Recorder) View() RecView {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	v := RecView{Dir: r.dir, Last: r.last}
+	v := RecView{Dir: r.dir, Last: r.last, HasLast: r.lastPath != ""}
 	if s := r.cur; s != nil {
 		v.On, v.File, v.Note, v.Seconds, v.MB = true, s.file, s.note, s.seconds, int(s.bytes>>20)
 	}
@@ -676,7 +703,7 @@ func (r *Recorder) finishSession(s *recSession, name string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if name != "" {
-		r.last = name
+		r.last, r.lastPath = name, s.base+".avi"
 	}
 	if r.cur == s {
 		r.cur = nil

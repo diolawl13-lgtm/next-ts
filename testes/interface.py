@@ -194,6 +194,36 @@ try:
         pg.click("#recLine button")
         time.sleep(0.4)
         assert not pg.is_visible("#notice")
+        assert "Confirmado pelo bot" in pg.inner_text("#reply"), pg.inner_text("#reply")  # resposta "posição 1"
+        assert not pg.is_disabled("#openVideo")
+        pg.click("#openVideo")
+        time.sleep(0.4)
+        assert not pg.is_visible("#notice"), pg.inner_text("#notice")
+
+        # 1.5.0: Plano C e planos salvos
+        assert pg.is_visible("#planC")  # o Plano B (A1) está escolhido
+        pg.select_option("#codeSelC", "A1")
+        time.sleep(0.2)
+        assert pg.is_disabled("#go") and "não pode repetir" in pg.inner_text("#codeNameC"), pg.inner_text("#codeNameC")
+        pg.select_option("#codeSelC", "Y11")
+        time.sleep(0.3)
+        assert "!next Y11" in pg.inner_text("#preview") and "Plano C" in pg.inner_text("#preview"), pg.inner_text("#preview")
+        pg.once("dialog", lambda d: d.accept("Noite"))
+        pg.click("#saveFav")
+        pg.wait_for_function("document.querySelectorAll('#favChips button').length === 1")
+        # Muda tudo e carrega o plano salvo de volta.
+        pg.select_option("#codeSelB", "")
+        time.sleep(0.2)
+        assert not pg.is_visible("#planC")
+        pg.select_option("#codeSel", "D7")
+        pg.uncheck("#windowOn")
+        pg.query_selector_all("#favChips button")[0].click()
+        time.sleep(0.4)
+        assert pg.input_value("#codeSel") == "C1" and pg.input_value("#codeSelB") == "A1" and pg.input_value("#codeSelC") == "Y11", \
+            (pg.input_value("#codeSel"), pg.input_value("#codeSelB"), pg.input_value("#codeSelC"))
+        assert pg.is_checked("#windowOn") and pg.is_checked("#waitGiveUp") and pg.is_checked("#record")
+        pg.locator("#favBox").scroll_into_view_if_needed()
+        pg.screenshot(path=f"{OUT}/12-planos-salvos-e-plano-c.png", full_page=True)
         b.close()
     errors = [e for e in errors if "status of 400" not in e]  # 400 = chave errada, esperado
     assert not errors, errors

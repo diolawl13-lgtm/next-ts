@@ -52,7 +52,7 @@ def ACEITAR(code="C1", who="Lord Calvon", resp="Livraria de Fire (Tier 3)"):
 
 
 class App:
-    def __init__(self, data=None, auto="300ms", clock=""):
+    def __init__(self, data=None, auto="300ms", clock="", fast=False):
         self.data = data or tempfile.mkdtemp(prefix="nextts-")
         # "Janela do TeamSpeak" de mentira para a gravação (o texto vira o conteúdo da janela).
         self.tswin = os.path.join(self.data, "janela_ts.txt")
@@ -61,6 +61,8 @@ class App:
         env = dict(os.environ, NEXTTS_DATA=self.data, NEXTTS_NO_BROWSER="1", NEXTTS_AUTO_EVERY=auto, NEXTTS_FAKE_TS=self.tswin)
         if clock:
             env["NEXTTS_TEST_CLOCK"] = clock
+        if fast:
+            env["NEXTTS_ALERT_FAST"] = "1"  # avisos com tempos curtos (lista parada 3 s, formato 1,5 s, resposta 3 s)
         self.p = subprocess.Popen([BIN], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         line = self.p.stdout.readline()
         m = re.search(r"http://127\.0\.0\.1:(\d+)/\?t=(\w+)", line)
@@ -98,9 +100,9 @@ class App:
             f.write(text)
         os.replace(tmp, self.tswin)
 
-    def start(self, code="C1", codeB="", win=None, test=False, wait=False, rec=False):
+    def start(self, code="C1", codeB="", win=None, test=False, wait=False, rec=False, codeC=""):
         s = self.state()
-        body = {"handler": s["handler"], "cid": s["cid"], "botUID": s["botUID"], "code": code, "codeB": codeB,
+        body = {"handler": s["handler"], "cid": s["cid"], "botUID": s["botUID"], "code": code, "codeB": codeB, "codeC": codeC,
                 "windowOn": bool(win), "windowStart": win[0] if win else "", "windowEnd": win[1] if win else "",
                 "testMode": test, "waitGiveUp": wait, "record": rec}
         return self.api("start", body)
@@ -135,7 +137,8 @@ def reset_mock():
     with mock.lock:
         mock.sent.clear(); mock.commands.clear()
     mock.ts_connected = True; mock.bot_clid = 7; mock.bot_present = True
-    mock.reply_from_bot = True; mock.slow_send = 0; mock.refuse_send = False; mock.noise = True
+    mock.reply_from_bot = True; mock.reply_tmpl = "Você entrou na posição 1 da fila de {code}. Tempo reservado: 2:00."
+    mock.slow_send = 0; mock.refuse_send = False; mock.noise = True
     mock.key = KEY; mock.second_bot = True; mock.description2 = ""
     mock.set_desc(desc(*OUTRAS))
 
@@ -156,6 +159,8 @@ RESULTS = []
 # Cenários que precisam da conexão automática desligada (o app só conecta quando pedido).
 AUTO = {"t25_reconectar_sem_colar_chave": "1h"}
 # Cenários com relógio simulado (hora do "Windows" para o app).
+# Cenários com os avisos acelerados (NEXTTS_ALERT_FAST).
+FAST = {"t78", "t79", "t80", "t81", "t82"}
 CLOCK = {"t71": "19:26:00", "t72": "18:30:00", "t65": "18:30:00", "t52": "18:30:00", "t40": "18:30:00", "t41": "18:30:00", "t42": "18:30:00", "t43": "22:30:57", "t44": "23:00:00",
          "t45": "23:50:00", "t46": "18:30:20", "t47": "18:30:00", "t16": "18:30:00", "t18": "18:30:00"}
 
@@ -164,7 +169,7 @@ def scenario(fn):
     if FILTRO and FILTRO not in fn.__name__:
         return fn
     reset_mock()
-    app = App(auto=AUTO.get(fn.__name__, "300ms"), clock=CLOCK.get(fn.__name__[:3], ""))
+    app = App(auto=AUTO.get(fn.__name__, "300ms"), clock=CLOCK.get(fn.__name__[:3], ""), fast=fn.__name__[:3] in FAST)
     t0 = time.time()
     try:
         fn(app)
@@ -1555,6 +1560,165 @@ def t77_aviso_rolando_nao_enche_o_video(app):
     assert any(chat_at - 0.3 <= p <= chat_at + 0.8 for p in pts), f"a mensagem do chat não entrou na hora ({chat_at:.1f} s): {pts}"
     gaps = [b - a for a, b in zip(pts, pts[1:])]
     assert max(gaps) <= 2.3, f"o aviso rolando ficou parado mais de 2 s no vídeo: {gaps}"
+
+
+# ---------------------------------------------------------------- 1.5.0: avisos, resposta do bot, 3 planos, planos salvos
+
+@scenario
+def t78_lista_parada_avisa(app):
+    connected(app)
+    mock.set_desc(desc(*OUTRAS))
+    app.start("C1")
+    assert wait(lambda: app.mon()["staleAlert"], 6), app.mon()
+    assert "parou de mudar" in app.mon()["staleAlert"] or "não muda há" in app.mon()["staleAlert"], app.mon()["staleAlert"]
+    assert app.mon()["running"] and not mock.sent
+    assert sum("pode ter travado" in x for x in logs(app)) == 1, logs(app)
+    mock.set_desc(desc(*OUTRAS, last="2026-10-14 20:00:01"))  # o bot voltou a atualizar
+    assert wait(lambda: not app.mon()["staleAlert"], 3), app.mon()
+    assert any("voltou a atualizar" in x for x in logs(app)), logs(app)
+
+
+@scenario
+def t79_formato_estranho_avisa_e_nao_envia(app):
+    connected(app)
+    mock.set_desc(desc(*OUTRAS))
+    app.start("C1")
+    time.sleep(1)
+    estranho = ["C1 - (1h45) Livraria de Fire (Tier 3): Lord Tenchi", "A1 - (0h22) Cobra Castelo (Tier 1): Jairo",
+                "D15 - (0h35) Caminho Ferumbras (Tier 1): Guiixd"]
+    mock.set_desc(desc(*estranho))
+    assert wait(lambda: app.mon()["formatAlert"], 5), app.mon()
+    assert "C1" in app.mon()["formatAlert"] and "(1h45)" in app.mon()["formatAlert"], app.mon()["formatAlert"]
+    time.sleep(1.5)
+    assert not mock.sent, "enviou com uma lista que não entende"
+    assert sum("formato" in x and "mudado" in x for x in logs(app)) == 1, logs(app)
+    mock.set_desc(desc(*OUTRAS))  # voltou ao normal
+    assert wait(lambda: not app.mon()["formatAlert"], 3), app.mon()
+    assert any("Voltei a entender a lista" in x for x in logs(app)), logs(app)
+    entra()
+    assert wait(lambda: mock.sent, 5)
+    # Só a linha do meu respawn estranha (o resto normal): também avisa e não envia.
+    mock.sent.clear()
+    app.start("C1")
+    time.sleep(1)
+    mock.set_desc(desc("C1 - (2h00) Livraria de Fire (Tier 3): Outra Pessoa", *OUTRAS))
+    assert wait(lambda: app.mon()["formatAlert"], 5), app.mon()
+    assert "linha do C1" in app.mon()["formatAlert"], app.mon()["formatAlert"]
+    time.sleep(1.5)
+    assert not mock.sent
+
+
+@scenario
+def t80_bot_confirma_primeiro_next(app):
+    connected(app)
+    mock.set_desc(desc(*OUTRAS))
+    app.start("C1")
+    time.sleep(1)
+    entra()
+    assert wait(lambda: app.mon()["replyKind"] == "ok", 6), app.mon()
+    assert "posição 1" in app.mon()["replyText"], app.mon()
+    assert any("Confirmado" in x and "posição 1" in x for x in logs(app)), logs(app)
+
+
+@scenario
+def t81_bot_diz_posicao_2(app):
+    connected(app)
+    mock.reply_tmpl = "Você entrou na posição 2 da fila de {code}. Tempo reservado: 2:00."
+    mock.set_desc(desc(*OUTRAS))
+    app.start("C1")
+    time.sleep(1)
+    entra()
+    assert wait(lambda: app.mon()["replyKind"] == "bad", 6), app.mon()
+    assert any("posição 2" in x and "não em 1º" in x for x in logs(app)), logs(app)
+    time.sleep(2)
+    n = sum(c.startswith("sendtextmessage") for c in mock.commands)
+    assert n == 1, f"mandou {n} comandos (só pode um)"
+
+
+@scenario
+def t82_bot_nao_responde(app):
+    connected(app)
+    mock.reply_from_bot = False
+    mock.set_desc(desc(*OUTRAS))
+    app.start("C1")
+    time.sleep(1)
+    entra()
+    assert wait(lambda: app.mon()["phase"] == "sent", 5)
+    assert app.mon()["replyKind"] == "wait", app.mon()
+    assert wait(lambda: app.mon()["replyKind"] == "none", 6), app.mon()
+    assert any("não respondeu ao !next" in x for x in logs(app)), logs(app)
+
+
+@scenario
+def t83_tres_planos(app):
+    connected(app)
+    mock.set_desc(desc(*OUTRAS))
+    st, r = app.start("C1", "D7", codeC="Y11")
+    assert st == 200, r
+    m = app.mon()
+    assert m["codeB"] == "D7" and m["codeC"] == "Y11", m
+    time.sleep(1)
+    entra(nxt=["X"])  # A falha
+    assert wait(lambda: app.mon()["plan"] == "B", 3), app.mon()
+    d7 = L("D7", "01:00", "Hunter B", resp="DT", nxt=["Y"])
+    mock.set_desc(desc(L(nxt=["X"]), d7, *OUTRAS))  # B falha
+    assert wait(lambda: app.mon()["plan"] == "C", 3), app.mon()
+    assert any("Plano B (D7) falhou" in x and "Passando para o Plano C (Y11)" in x for x in logs(app)), logs(app)
+    mock.set_desc(desc(L(nxt=["X"]), d7, "Y11 - [ 01:30 ] Norcferatu Catacombs Direita (Tier 1): Maarpz", *OUTRAS))
+    assert wait(lambda: mock.sent, 5), app.mon()
+    assert mock.sent[0][2] == "!next Y11" and len(mock.sent) == 1, mock.sent
+
+
+@scenario
+def t84_planos_validacao_e_planos_salvos(app):
+    connected(app)
+    mock.set_desc(desc(*OUTRAS))
+    st, r = app.start("C1", "", codeC="C1")
+    assert st == 400 and "mesmo respawn" in r["error"], r
+    st, r = app.start("C1", "", codeC="D7")  # C sem B vira B
+    assert st == 200, r
+    assert app.mon()["codeB"] == "D7" and app.mon()["codeC"] == "", app.mon()
+    app.api("stop", {})
+    fav = {"name": "Noite", "codes": ["c1", "D7", "y11"], "windowOn": True, "windowStart": "20:00", "windowEnd": "22:30",
+           "waitGiveUp": True, "record": False}
+    st, r = app.api("fav/save", fav)
+    assert st == 200, r
+    st, r = app.api("fav/save", dict(fav, name="Ruim", codes=["C1", "C1"]))
+    assert st == 400, r
+    st, r = app.api("fav/save", dict(fav, name=""))
+    assert st == 400, r
+    st, r = app.api("fav/save", dict(fav, codes=["A1"]))  # mesmo nome: troca
+    assert st == 200, r
+    favs = app.state()["favorites"]
+    assert len(favs) == 1 and favs[0]["codes"] == ["A1"], favs
+    app.close()
+    app2 = App(app.data)
+    try:
+        assert wait(lambda: app2.state()["connected"], 6)
+        favs = app2.state()["favorites"]
+        assert len(favs) == 1 and favs[0]["name"] == "Noite" and favs[0]["waitGiveUp"] is True, favs
+        assert app2.state()["codeB"] == "D7", "plano B não foi lembrado"
+        st, r = app2.api("fav/delete", {"name": "noite"})
+        assert st == 200, r
+        assert app2.state()["favorites"] == [], app2.state()["favorites"]
+    finally:
+        app2.close()
+
+
+@scenario
+def t85_abrir_ultimo_video(app):
+    connected(app)
+    st, r = app.api("openvideo", {})
+    assert st == 400 and "nenhum vídeo" in r["error"], r
+    assert not app.state()["rec"]["hasLast"]
+    mock.set_desc(desc(*OUTRAS))
+    app.start("C1", rec=True)
+    time.sleep(1)
+    app.api("stop", {})
+    assert wait(lambda: not app.state()["rec"]["on"], 6)
+    assert app.state()["rec"]["hasLast"]
+    st, r = app.api("openvideo", {})
+    assert st == 200, r
 
 
 print()

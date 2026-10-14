@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-const Version = "1.4.3"
+const Version = "1.5.0"
 
 // Preset é um "atalho de claim": de onde ler (canal) e para quem mandar (bot).
 // Guarda o UID do bot (estável) e os nomes só para mostrar.
@@ -21,25 +21,39 @@ type Preset struct {
 	BotName     string `json:"botName"`     // nome do bot (só para mostrar)
 }
 
+// Favorite é um "plano salvo": respawns (A, B, C), janela e opções.
+// O canal, o bot e o Modo teste não entram.
+type Favorite struct {
+	Name        string   `json:"name"`
+	Codes       []string `json:"codes"`
+	WindowOn    bool     `json:"windowOn"`
+	WindowStart string   `json:"windowStart"`
+	WindowEnd   string   `json:"windowEnd"`
+	WaitGiveUp  bool     `json:"waitGiveUp"`
+	Record      bool     `json:"record"`
+}
+
 // Settings são as escolhas lembradas entre uma abertura e outra.
 // O modo teste nunca é lembrado (para não esquecer ligado sem querer).
 type Settings struct {
-	Port          int      `json:"port"`
-	Remember      bool     `json:"remember"`
-	KeyProtected  string   `json:"keyProtected,omitempty"` // API Key protegida pelo Windows (DPAPI)
-	ServerName    string   `json:"serverName"`
-	ChannelName   string   `json:"channelName"`
-	ManualChannel bool     `json:"manualChannel"` // o usuário escolheu o canal de propósito
-	BotUID        string   `json:"botUID"`
-	BotName       string   `json:"botName"`
-	Code          string   `json:"code"`  // Plano A
-	CodeB         string   `json:"codeB"` // Plano B (vazio = sem)
-	WindowOn      bool     `json:"windowOn"`
-	WindowStart   string   `json:"windowStart"`
-	WindowEnd     string   `json:"windowEnd"`
-	WaitGiveUp    bool     `json:"waitGiveUp"` // esperar o next desistir
-	Record        bool     `json:"record"`     // gravar a janela do TS em vídeo
-	Presets       []Preset `json:"presets"`
+	Port          int        `json:"port"`
+	Remember      bool       `json:"remember"`
+	KeyProtected  string     `json:"keyProtected,omitempty"` // API Key protegida pelo Windows (DPAPI)
+	ServerName    string     `json:"serverName"`
+	ChannelName   string     `json:"channelName"`
+	ManualChannel bool       `json:"manualChannel"` // o usuário escolheu o canal de propósito
+	BotUID        string     `json:"botUID"`
+	BotName       string     `json:"botName"`
+	Code          string     `json:"code"`  // Plano A
+	CodeB         string     `json:"codeB"` // Plano B (vazio = sem)
+	CodeC         string     `json:"codeC"` // Plano C (vazio = sem)
+	WindowOn      bool       `json:"windowOn"`
+	WindowStart   string     `json:"windowStart"`
+	WindowEnd     string     `json:"windowEnd"`
+	WaitGiveUp    bool       `json:"waitGiveUp"` // esperar o next desistir
+	Record        bool       `json:"record"`     // gravar a janela do TS em vídeo
+	Presets       []Preset   `json:"presets"`
+	Favorites     []Favorite `json:"favorites"` // planos salvos
 	// Atalhos sugeridos automaticamente que o usuário apagou (não recriar).
 	PresetsRemoved []string `json:"presetsRemoved"`
 }
@@ -107,6 +121,9 @@ func (st *Store) Load() Settings {
 	}
 	if c, ok := NormalizeCode(s.CodeB); !ok || c == s.Code {
 		s.CodeB = ""
+	}
+	if c, ok := NormalizeCode(s.CodeC); !ok || s.CodeB == "" || c == s.Code || c == s.CodeB {
+		s.CodeC = ""
 	}
 	return s
 }

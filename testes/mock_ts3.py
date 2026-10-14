@@ -46,6 +46,8 @@ class MockTS3:
         self.commands = []            # todos os comandos recebidos
         self.noise = True             # manda notificações não pedidas no meio das respostas
         self.reply_from_bot = True
+        # Resposta do bot ao !next (como a do MissClick Bot Test de verdade).
+        self.reply_tmpl = "Você entrou na posição 1 da fila de {code}. Tempo reservado: 2:00."
         self.slow_send = 0.0
         self.refuse_send = False
         self.conns = []
@@ -178,7 +180,7 @@ class MockTS3:
                         threading.Timer(0.05, self._send, (c, echo)).start()
                         if self.reply_from_bot:
                             bname, buid = ("MissClick\\sBot\\sTest", "MCBOT\\/xyz=") if tgt == 21 else ("x3tBot\\sKalibra", "BOTUID+abc\\/=")
-                            rep = f"notifytextmessage schandlerid=1 targetmode=1 msg={esc('[b]Você está no next de ' + msg.split(' ')[-1] + '.[/b]')} target=5 invokerid={tgt} invokername={bname} invokeruid={buid}\n\r"
+                            rep = f"notifytextmessage schandlerid=1 targetmode=1 msg={esc('[b]' + self.reply_tmpl.format(code=msg.split(' ')[-1]) + '[/b]')} target=5 invokerid={tgt} invokername={bname} invokeruid={buid}\n\r"
                             threading.Timer(0.3, self._send, (c, rep)).start()
                 else:
                     out += "error id=256 msg=command\\snot\\sfound\n\r"

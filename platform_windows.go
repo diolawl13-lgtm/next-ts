@@ -122,6 +122,9 @@ func openWindow(url, profileDir string) error {
 	return openDefaultBrowser(url)
 }
 
+// openFile abre um arquivo no programa padrão do Windows (ex.: o vídeo no VLC).
+func openFile(path string) error { return openDefaultBrowser(path) }
+
 // openFolder abre uma pasta no Explorador de Arquivos.
 func openFolder(dir string) error {
 	cmd := exec.Command("explorer.exe", dir)

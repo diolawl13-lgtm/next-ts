@@ -7,7 +7,9 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -30,6 +32,23 @@ import (
 //   - espera de 1 s a 2 s (aleatório), confere de novo e envia;
 //   - envia UMA ÚNICA VEZ e para;
 //   - gravação (opcional) da janela do TS em vídeo, do Iniciar até 10 s depois de enviar.
+//
+// Avisos (sem som): lista parada, formato que o app não entende e resposta do bot.
+// Nos testes automáticos (NEXTTS_ALERT_FAST=1) os tempos ficam bem curtos.
+var (
+	StaleAfter   = 5 * time.Minute  // a lista não muda há esse tempo: o bot pode ter travado
+	FormatAfter  = 10 * time.Second // o app não entende a lista há esse tempo: o formato pode ter mudado
+	ReplyTimeout = 15 * time.Second // o bot não respondeu ao !next nesse tempo
+)
+
+func init() {
+	if os.Getenv("NEXTTS_ALERT_FAST") != "" {
+		StaleAfter, FormatAfter, ReplyTimeout = 3*time.Second, 1500*time.Millisecond, 3*time.Second
+	}
+}
+
+const MaxPlans = 3 // Planos A, B e C
+
 const (
 	PollInterval = 500 * time.Millisecond
 	DelayMin     = 1000 * time.Millisecond
@@ -51,6 +70,7 @@ type MonitorView struct {
 	Plan         string `json:"plan"`  // "A" ou "B"
 	CodeA        string `json:"codeA"`
 	CodeB        string `json:"codeB"`  // vazio = sem Plano B
+	CodeC        string `json:"codeC"`  // vazio = sem Plano C
 	Window       string `json:"window"` // "20:00 – 22:30" (vazio = sem janela)
 	Calc         string `json:"calc"`   // última conta de horário feita
 	EndsAt       string `json:"endsAt"` // quando quem está caçando sai (hora atual + tempo que falta)
@@ -64,9 +84,13 @@ type MonitorView struct {
 	SecondsSince int    `json:"secondsSinceChange"` // desde a última mudança da lista
 	PendingMs    int    `json:"pendingMs"`          // falta para enviar (se aguardando)
 	StartedAt    string `json:"startedAt"`
-	WaitGiveUp   bool   `json:"waitGiveUp"` // opção "esperar o next desistir" ligada
-	WaitingFor   string `json:"waitingFor"` // esperando esta pessoa desistir do next (vazio = não)
-	Record       bool   `json:"record"`     // gravando em vídeo
+	WaitGiveUp   bool   `json:"waitGiveUp"`  // opção "esperar o next desistir" ligada
+	WaitingFor   string `json:"waitingFor"`  // esperando esta pessoa desistir do next (vazio = não)
+	Record       bool   `json:"record"`      // gravando em vídeo
+	StaleAlert   string `json:"staleAlert"`  // aviso: a lista parou de atualizar
+	FormatAlert  string `json:"formatAlert"` // aviso: o app não está entendendo a lista
+	ReplyKind    string `json:"replyKind"`   // resposta do bot ao !next: wait, ok, bad, check, none
+	ReplyText    string `json:"replyText"`
 	lastChange   time.Time
 	lastDesc     string
 	pendingAt    time.Time
@@ -104,6 +128,14 @@ type App struct {
 	notif chan Notify
 	rng   *rand.Rand
 	rec   *Recorder
+	// Esperando a resposta do bot ao !next que acabou de sair.
+	await struct {
+		runID  int
+		code   string
+		botUID string
+		at     time.Time
+		open   bool
+	}
 }
 
 func NewApp(store *Store) *App {
@@ -160,8 +192,53 @@ func (a *App) notifyLoop() {
 				verb = "cutucou (poke)"
 			}
 			a.addLog("bot", "%s %s: %s", n.Data["invokername"], verb, msg)
+			if private && a.await.open && a.await.botUID == a.botUID && time.Since(a.await.at) < time.Minute {
+				a.await.open = false
+				a.checkReply(n.Data["invokername"], msg)
+			}
 		}
 		a.mu.Unlock()
+	}
+}
+
+// Resposta do bot ao !next. Exemplo do MissClick Bot Test:
+// "Você entrou na posição 1 da fila de C1. Tempo reservado: 2:00."
+var (
+	rePosition  = regexp.MustCompile(`(?i)(?:posi[çc][ãa]o|position)\s*(?:n[º°o.]?\s*)?#?\s*(\d+)`)
+	reBotRefuse = regexp.MustCompile(`(?i)\b(erro|error|inv[áa]lid|n[ãa]o foi poss[íi]vel|n[ãa]o pode|n[ãa]o existe|n[ãa]o encontrad|negad|bloquead|aguarde|denied|not allowed)`)
+)
+
+// classifyReply: "ok" (1º next confirmado), "bad" (outra posição ou erro) ou "check" (não sei dizer).
+func classifyReply(msg string) (kind string, pos int) {
+	if m := rePosition.FindStringSubmatch(msg); m != nil {
+		pos, _ = strconv.Atoi(m[1])
+		if pos == 1 {
+			return "ok", 1
+		}
+		return "bad", pos
+	}
+	if reBotRefuse.MatchString(msg) {
+		return "bad", 0
+	}
+	return "check", 0
+}
+
+// checkReply: precisa de a.mu travado.
+func (a *App) checkReply(bot, msg string) {
+	kind, pos := classifyReply(msg)
+	code := a.await.code
+	if a.mon.runID == a.await.runID {
+		a.mon.ReplyKind, a.mon.ReplyText = kind, msg
+	}
+	switch {
+	case kind == "ok":
+		a.addLog("ok", "Confirmado: %s respondeu que você ficou na posição 1 (1º next) de %s.", bot, code)
+	case pos > 1:
+		a.addLog("err", "Atenção: %s respondeu que você ficou na posição %d de %s, não em 1º. O app não manda outro comando; confira no TeamSpeak.", bot, pos, code)
+	case kind == "bad":
+		a.addLog("err", "Atenção: a resposta de %s parece um erro. O app não manda outro comando; confira no TeamSpeak.", bot)
+	default:
+		a.addLog("warn", "Não consegui confirmar pela resposta de %s se você ficou em 1º no %s. Confira no TeamSpeak.", bot, code)
 	}
 }
 
@@ -420,6 +497,7 @@ type PeekView struct {
 	Summary    string `json:"summary"`
 	Line       string `json:"line"`
 	SummaryB   string `json:"summaryB"`
+	SummaryC   string `json:"summaryC"`
 }
 
 // describe: "Agora: Kira no respawn (sai às 20:15), ninguém no next."
@@ -436,7 +514,7 @@ func endsAt(st QueueState, t time.Time) string {
 	return t.Add(time.Duration(st.Remaining) * time.Minute).Format("15:04")
 }
 
-func (a *App) Peek(cid int, code, codeB string) PeekView {
+func (a *App) Peek(cid int, code, codeB, codeC string) PeekView {
 	a.mu.Lock()
 	q, handler, running := a.q, a.handler, a.mon.Running
 	a.mu.Unlock()
@@ -463,6 +541,9 @@ func (a *App) Peek(cid int, code, codeB string) PeekView {
 	}
 	if c, ok := NormalizeCode(codeB); ok && pv.HasList {
 		pv.SummaryB = describe(ParseQueue(d, c), t)
+	}
+	if c, ok := NormalizeCode(codeC); ok && pv.HasList {
+		pv.SummaryC = describe(ParseQueue(d, c), t)
 	}
 	return pv
 }
@@ -528,6 +609,7 @@ type StartParams struct {
 	BotUID      string `json:"botUID"`
 	Code        string `json:"code"`  // Plano A
 	CodeB       string `json:"codeB"` // Plano B (opcional)
+	CodeC       string `json:"codeC"` // Plano C (opcional)
 	WindowOn    bool   `json:"windowOn"`
 	WindowStart string `json:"windowStart"`
 	WindowEnd   string `json:"windowEnd"`
@@ -538,6 +620,7 @@ type StartParams struct {
 
 type runParams struct {
 	StartParams
+	plans                            []string // A, B, C (só os escolhidos)
 	serverName, channelName, botName string
 	win                              Window
 	id                               int
@@ -548,14 +631,29 @@ func (a *App) Start(p StartParams) error {
 	if !ok {
 		return errors.New("digite um código de respawn válido para o Plano A, por exemplo C1")
 	}
-	codeB := ""
-	if strings.TrimSpace(p.CodeB) != "" {
-		if codeB, ok = NormalizeCode(p.CodeB); !ok {
-			return errors.New("o código do Plano B está inválido (exemplo: D7). Para não usar Plano B, deixe \"Sem Plano B\"")
+	plans := []string{code}
+	for i, raw := range []string{p.CodeB, p.CodeC} {
+		if strings.TrimSpace(raw) == "" {
+			continue
 		}
-		if codeB == code {
-			return errors.New("o Plano B é o mesmo respawn do Plano A. Escolha outro ou deixe \"Sem Plano B\"")
+		letter := string(rune('B' + i))
+		c, ok := NormalizeCode(raw)
+		if !ok {
+			return fmt.Errorf("o código do Plano %s está inválido (exemplo: D7). Para não usar o Plano %s, deixe \"Sem Plano %s\"", letter, letter, letter)
 		}
+		for j, prev := range plans {
+			if c == prev {
+				return fmt.Errorf("o Plano %s é o mesmo respawn do Plano %s. Escolha outro ou deixe \"Sem Plano %s\"", letter, string(rune('A'+j)), letter)
+			}
+		}
+		plans = append(plans, c) // sem B, o C vira o B
+	}
+	codeB, codeC := "", ""
+	if len(plans) > 1 {
+		codeB = plans[1]
+	}
+	if len(plans) > 2 {
+		codeC = plans[2]
 	}
 	var win Window
 	if p.WindowOn {
@@ -565,7 +663,7 @@ func (a *App) Start(p StartParams) error {
 		}
 		win = w
 	}
-	if pv := a.Peek(p.Cid, code, ""); pv.Ok && !pv.HasList {
+	if pv := a.Peek(p.Cid, code, "", ""); pv.Ok && !pv.HasList {
 		return errors.New("o canal escolhido está sem a lista de respawns. Escolha o canal certo (ex.: Claimeds) e clique nele uma vez no TeamSpeak")
 	}
 	a.mu.Lock()
@@ -580,7 +678,7 @@ func (a *App) Start(p StartParams) error {
 		return errors.New("a lista de servidores mudou; clique em Atualizar")
 	}
 	rp := runParams{StartParams: p, win: win}
-	rp.Code, rp.CodeB = code, codeB
+	rp.Code, rp.CodeB, rp.CodeC, rp.plans = code, codeB, codeC, plans
 	for _, s := range a.servers {
 		if s.Handler == p.Handler {
 			rp.serverName = s.Name
@@ -605,7 +703,7 @@ func (a *App) Start(p StartParams) error {
 	a.cid, a.botUID = p.Cid, p.BotUID
 	a.set.ServerName, a.set.ChannelName, a.set.BotUID, a.set.BotName = rp.serverName, rp.channelName, p.BotUID, rp.botName
 	a.set.ManualChannel = true
-	a.set.Code, a.set.CodeB = code, codeB
+	a.set.Code, a.set.CodeB, a.set.CodeC = code, codeB, codeC
 	a.set.WindowOn = p.WindowOn
 	if p.WindowOn {
 		a.set.WindowStart, a.set.WindowEnd = p.WindowStart, p.WindowEnd
@@ -616,11 +714,14 @@ func (a *App) Start(p StartParams) error {
 	a.runs++
 	rp.id = a.runs
 	ctx, cancel := context.WithCancel(context.Background())
-	a.mon = MonitorView{Running: true, Phase: "watching", Code: code, Plan: "A", CodeA: code, CodeB: codeB, Window: win.Text,
+	a.mon = MonitorView{Running: true, Phase: "watching", Code: code, Plan: "A", CodeA: code, CodeB: codeB, CodeC: codeC, Window: win.Text,
 		TestMode: p.TestMode, WaitGiveUp: p.WaitGiveUp, Status: "Lendo a lista...", StartedAt: now().Format("15:04:05"), cancel: cancel, runID: rp.id}
 	extra := ""
 	if codeB != "" {
 		extra += " Plano B: " + codeB + "."
+	}
+	if codeC != "" {
+		extra += " Plano C: " + codeC + "."
 	}
 	if win.On {
 		extra += " Só pego se a hunt começar entre " + win.Text + "."
@@ -750,6 +851,13 @@ func sameParty(hunter, next string) bool {
 	return false
 }
 
+// lineOK: dá para confiar na linha. Respawn livre, ou linha entendida COM o tempo que
+// falta (ou no "Aceitar"). Sem o tempo, o formato pode ter mudado: o app não age por ela
+// (foi o que aconteceu em 13/10, quando o tempo passou a vir como "[ 01:45 ]").
+func lineOK(st QueueState) bool {
+	return !st.Present || (st.Valid && (st.HasTimer || st.Accepting))
+}
+
 // huntKey identifica "quem está na hunt": muda quando alguém novo entra.
 func huntKey(st QueueState) string {
 	if !st.Present || st.Accepting {
@@ -759,10 +867,7 @@ func huntKey(st QueueState) string {
 }
 
 func (a *App) run(ctx context.Context, p runParams) {
-	plans := []string{p.Code}
-	if p.CodeB != "" {
-		plans = append(plans, p.CodeB)
-	}
+	plans := p.plans
 	idx := 0
 	ps := planState{code: plans[0]}
 	letter := func() string { return string(rune('A' + idx)) }
@@ -799,15 +904,15 @@ func (a *App) run(ctx context.Context, p runParams) {
 			ps = planState{code: plans[idx]}
 			a.update(p.id, func(m *MonitorView) {
 				m.Phase, m.Plan, m.Code, m.PendingMs, m.pendingAt = "watching", letter(), ps.code, 0, time.Time{}
-				m.Status = "Passando para o Plano B..."
+				m.Status = "Passando para o Plano " + letter() + "..."
 				m.Line, m.Present, m.Valid, m.Count, m.EndsAt = "", false, false, 0, ""
 			})
-			a.Log("warn", "Plano A (%s) falhou: %s Passando para o Plano B (%s).", old, why, ps.code)
+			a.Log("warn", "Plano %s (%s) falhou: %s Passando para o Plano %s (%s).", string(rune('A'+idx-1)), old, why, letter(), ps.code)
 			return false
 		}
 		status := fmt.Sprintf("Plano %s (%s) falhou: %s Nada foi enviado.", letter(), ps.code, why)
 		if len(plans) > 1 {
-			status = fmt.Sprintf("Plano B (%s) também falhou: %s Nada foi enviado.", ps.code, why)
+			status = fmt.Sprintf("Plano %s (%s) também falhou: %s Nada foi enviado.", letter(), ps.code, why)
 		}
 		a.finish(p.id, "failed", status, "warn", status+" Monitoramento encerrado.")
 		return true
@@ -934,7 +1039,10 @@ func (a *App) run(ctx context.Context, p runParams) {
 				m.EndsAt = endsAt(st, t)
 			}
 		})
-		readable := !st.Present || st.Valid
+		readable := lineOK(st)
+		if st.Present && st.Valid && !readable {
+			st.Reason = "não consegui ler o tempo que falta na linha do " + ps.code
+		}
 		k := huntKey(st)
 		// hunting: tem alguém caçando. "Aceitar" (o next aceitando o respawn) ainda não é ninguém caçando.
 		hunting := st.Present && !st.Accepting
@@ -1076,6 +1184,61 @@ func (a *App) run(ctx context.Context, p runParams) {
 		return schedule(st, k, fmt.Sprintf("%s entrou em %s (Plano %s)", hunter, ps.code, letter()), false)
 	}
 
+	// watchList: avisa (sem som) se a lista parou de atualizar ou se o app não a entende mais.
+	lastDesc, lastChangeAt := "", time.Now()
+	staleOn, formatOn := false, false
+	var badSince time.Time
+	watchList := func(desc string) {
+		if desc != lastDesc {
+			lastDesc, lastChangeAt = desc, time.Now()
+			if staleOn {
+				staleOn = false
+				a.update(p.id, func(m *MonitorView) { m.StaleAlert = "" })
+				a.Log("ok", "A lista voltou a atualizar.")
+			}
+		}
+		total, bad, sample := ListHealth(desc)
+		if !staleOn && total > 0 && time.Since(lastChangeAt) >= StaleAfter {
+			staleOn = true
+			mins := int(time.Since(lastChangeAt).Minutes())
+			msg := fmt.Sprintf("A lista do canal %s não muda há %d minutos. O bot da lista pode ter travado: confira no TeamSpeak. Continuo vigiando.", p.channelName, mins)
+			if mins < 1 {
+				msg = fmt.Sprintf("A lista do canal %s parou de mudar. O bot da lista pode ter travado: confira no TeamSpeak. Continuo vigiando.", p.channelName)
+			}
+			a.update(p.id, func(m *MonitorView) { m.StaleAlert = msg })
+			a.Log("warn", "%s", msg)
+		}
+		own := ParseQueue(desc, ps.code)
+		ownBad := !lineOK(own)
+		if ownBad && own.Valid {
+			own.Reason = "não consegui ler o tempo que falta"
+		}
+		wrong := ownBad || (total > 0 && bad*2 > total)
+		if !wrong {
+			badSince = time.Time{}
+			if formatOn {
+				formatOn = false
+				a.update(p.id, func(m *MonitorView) { m.FormatAlert = "" })
+				a.Log("ok", "Voltei a entender a lista.")
+			}
+			return
+		}
+		if badSince.IsZero() {
+			badSince = time.Now()
+		}
+		if !formatOn && time.Since(badSince) >= FormatAfter {
+			formatOn = true
+			var msg string
+			if ownBad {
+				msg = fmt.Sprintf("Não estou entendendo a linha do %s (%s). Pode ser que o formato da lista tenha mudado: enquanto for assim, não envio nada. Linha: %s", ps.code, strings.ToLower(own.Reason), own.Line)
+			} else {
+				msg = fmt.Sprintf("Não estou entendendo %d de %d linhas da lista. Pode ser que o formato tenha mudado. Exemplo: %s", bad, total, sample)
+			}
+			a.update(p.id, func(m *MonitorView) { m.FormatAlert = msg })
+			a.Log("err", "%s", msg)
+		}
+	}
+
 	ticker := time.NewTicker(PollInterval)
 	defer ticker.Stop()
 	for {
@@ -1089,6 +1252,7 @@ func (a *App) run(ctx context.Context, p runParams) {
 			return
 		}
 		if ok {
+			watchList(desc)
 			for again := true; again; {
 				var done bool
 				done, again = step(desc)
@@ -1114,7 +1278,7 @@ func (a *App) run(ctx context.Context, p runParams) {
 				return
 			}
 			st := ParseQueue(desc, ps.code)
-			if !ok || (st.Present && !st.Valid) {
+			if !ok || !lineOK(st) {
 				fireTries++
 				if fireTries <= 6 {
 					timer = time.NewTimer(PollInterval)
@@ -1332,8 +1496,24 @@ func (a *App) send(ctx context.Context, p runParams, code string, waited time.Du
 	err = q.SendPrivate(clid, message)
 	switch {
 	case err == nil:
+		a.mu.Lock()
+		a.await.runID, a.await.code, a.await.botUID, a.await.at, a.await.open = p.id, code, p.BotUID, time.Now(), true
+		a.mon.ReplyKind, a.mon.ReplyText = "wait", ""
+		a.mu.Unlock()
 		a.finish(p.id, "sent", fmt.Sprintf("Enviado: \"%s\" para %s às %s.", message, p.botName, now().Format("15:04:05")),
 			"ok", fmt.Sprintf("ENVIADO \"%s\" para %s (%s s depois de a vaga de 1º next ficar livre). Monitoramento encerrado.", message, p.botName, secs(waited)))
+		go func(id int, bot string) {
+			time.Sleep(ReplyTimeout)
+			a.mu.Lock()
+			defer a.mu.Unlock()
+			if a.await.open && a.await.runID == id {
+				a.await.open = false
+				if a.mon.runID == id {
+					a.mon.ReplyKind = "none"
+				}
+				a.addLog("warn", "%s não respondeu ao !next em %d s. Confira o privado dele no TeamSpeak.", bot, int(ReplyTimeout.Seconds()))
+			}
+		}(p.id, p.botName)
 	case errors.As(err, new(*QueryError)):
 		a.finish(p.id, "error", "O TeamSpeak recusou o envio. Nada foi enviado.", "err", "O TeamSpeak recusou o envio: "+err.Error())
 	default:
@@ -1362,6 +1542,7 @@ type StateView struct {
 	BotUID      string        `json:"botUID"`
 	Code        string        `json:"code"`
 	CodeB       string        `json:"codeB"`
+	CodeC       string        `json:"codeC"`
 	WindowOn    bool          `json:"windowOn"`
 	WindowStart string        `json:"windowStart"`
 	WindowEnd   string        `json:"windowEnd"`
@@ -1372,6 +1553,8 @@ type StateView struct {
 	Monitor     MonitorView   `json:"monitor"`
 	Log         []LogEntry    `json:"log"`
 	Presets     []PresetView  `json:"presets"`
+	Favorites   []Favorite    `json:"favorites"`
+	MaxPlans    int           `json:"maxPlans"`
 	Version     string        `json:"version"`
 }
 
@@ -1395,11 +1578,99 @@ func (a *App) State() StateView {
 		HasSavedKey: a.set.KeyProtected != "", HasKey: a.set.KeyProtected != "" || a.apiKey != "",
 		AutoWaiting: a.autoWaiting && !a.autoBlocked && !(a.q != nil && a.q.Alive()), AutoBlocked: a.autoBlocked, Remember: a.set.Remember, Port: a.set.Port,
 		Servers: a.servers, Handler: a.handler, Channels: a.channels, Cid: a.cid, Clients: a.clients, BotUID: a.botUID,
-		Code: a.set.Code, CodeB: a.set.CodeB, WindowOn: a.set.WindowOn, WindowStart: a.set.WindowStart, WindowEnd: a.set.WindowEnd,
+		Code: a.set.Code, CodeB: a.set.CodeB, CodeC: a.set.CodeC, WindowOn: a.set.WindowOn, WindowStart: a.set.WindowStart, WindowEnd: a.set.WindowEnd,
 		WaitGiveUp: a.set.WaitGiveUp, Record: a.set.Record, Rec: rec,
 		Now:     now().Format("15:04:05"),
-		Monitor: m, Log: logs, Presets: a.presetViews(), Version: Version,
+		Monitor: m, Log: logs, Presets: a.presetViews(), Favorites: append([]Favorite{}, a.set.Favorites...), MaxPlans: MaxPlans, Version: Version,
 	}
+}
+
+// ---------- Planos salvos (favoritos) ----------
+
+const maxFavorites = 20
+
+// SaveFavorite guarda (ou troca, se o nome já existir) um plano salvo.
+func (a *App) SaveFavorite(f Favorite) error {
+	f.Name = strings.TrimSpace(f.Name)
+	if f.Name == "" {
+		return errors.New("dê um nome para o plano salvo (ex.: Noite)")
+	}
+	if len([]rune(f.Name)) > 30 {
+		return errors.New("o nome do plano salvo é muito grande (até 30 letras)")
+	}
+	var codes []string
+	for _, raw := range f.Codes {
+		if strings.TrimSpace(raw) == "" {
+			continue
+		}
+		c, ok := NormalizeCode(raw)
+		if !ok {
+			return fmt.Errorf("o código %q está inválido", raw)
+		}
+		for _, prev := range codes {
+			if prev == c {
+				return fmt.Errorf("o respawn %s aparece em dois planos", c)
+			}
+		}
+		codes = append(codes, c)
+	}
+	if len(codes) == 0 {
+		return errors.New("escolha pelo menos o respawn do Plano A antes de salvar")
+	}
+	if len(codes) > MaxPlans {
+		codes = codes[:MaxPlans]
+	}
+	f.Codes = codes
+	if f.WindowOn {
+		if _, ok := ParseHM(f.WindowStart); !ok {
+			return errors.New("horário da janela inválido")
+		}
+		if _, ok := ParseHM(f.WindowEnd); !ok {
+			return errors.New("horário da janela inválido")
+		}
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	out := []Favorite{}
+	for _, old := range a.set.Favorites {
+		if !strings.EqualFold(old.Name, f.Name) {
+			out = append(out, old)
+		}
+	}
+	if len(out) >= maxFavorites {
+		return fmt.Errorf("já tem %d planos salvos; apague algum antes", maxFavorites)
+	}
+	a.set.Favorites = append(out, f)
+	a.saveSettings()
+	a.addLog("info", "Plano salvo: %s (%s).", f.Name, strings.Join(f.Codes, ", "))
+	return nil
+}
+
+func (a *App) DeleteFavorite(name string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	out := []Favorite{}
+	for _, f := range a.set.Favorites {
+		if !strings.EqualFold(f.Name, name) {
+			out = append(out, f)
+		}
+	}
+	if len(out) == len(a.set.Favorites) {
+		return errors.New("esse plano salvo não existe mais")
+	}
+	a.set.Favorites = out
+	a.saveSettings()
+	a.addLog("info", "Plano salvo apagado: %s.", name)
+	return nil
+}
+
+// OpenLastVideo abre a última gravação no player de vídeo do Windows (ex.: VLC).
+func (a *App) OpenLastVideo() error {
+	p := a.rec.LastVideo()
+	if p == "" {
+		return errors.New("ainda não tem nenhum vídeo gravado")
+	}
+	return openFile(p)
 }
 
 // OpenRecDir abre a pasta das gravações no Explorador de Arquivos.

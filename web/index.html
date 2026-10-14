@@ -252,6 +252,15 @@ select:disabled { cursor: default; }
 .recline .warn { display: block; margin-top: 3px; color: #a05a00; }
 .recline button.link { color: #2a5c9a; margin-left: 6px; }
 .subopt { margin: 6px 0 0 23px; }
+.planTag.c { background: linear-gradient(180deg, #7a6a86, #4b3f55); box-shadow: inset 1px 1px 0 #c9b9d6, inset -1px -1px 0 #261f2c; }
+.alert { margin-top: 8px; padding: 8px 10px; font-size: 12.5px; font-weight: bold; color: #fff1ec; background: linear-gradient(180deg, #a3362b, #7a2219); border: 1px solid #3d0d09; box-shadow: inset 1px 1px 0 #e0776b; }
+.alert.amber { color: #3b2a16; background: linear-gradient(180deg, #f3c35a, #d99a2b); border-color: #6b4a10; box-shadow: inset 1px 1px 0 #ffe3a0; }
+.reply { margin-top: 8px; padding: 6px 8px; font-size: 12.5px; font-weight: bold; border: 1px solid rgba(59,42,22,.45); }
+.reply.ok { color: #1f5a14; background: rgba(79,179,74,.18); border-color: rgba(44,101,34,.55); }
+.reply.bad { color: #fff1ec; background: #a3362b; border-color: #3d0d09; }
+.reply.check, .reply.none { color: #5a3a00; background: rgba(240,179,60,.28); border-color: rgba(138,106,42,.6); }
+.reply.wait { color: #6d5a3d; background: rgba(59,42,22,.06); }
+.reply small { display: block; font-weight: normal; margin-top: 2px; }
 .hidden { display: none !important; }
 </style>
 </head>
@@ -339,6 +348,11 @@ select:disabled { cursor: default; }
 <!-- 3. O que pegar -->
 <section class="card disabled" id="cardWhat">
   <h2><canvas data-icon="sword"></canvas>3 · O que pegar</h2>
+  <div id="favBox" class="hidden">
+    <label class="f">Planos salvos</label>
+    <div class="chips" id="favChips"></div>
+    <div class="hint">Um clique carrega os respawns, a janela e as opções.</div>
+  </div>
   <div class="plan">
     <div class="planTag">A</div>
     <div class="planBody">
@@ -360,6 +374,18 @@ select:disabled { cursor: default; }
       <div class="hint">Só é usado se o Plano A falhar: pegaram o next antes (e não desistiram, com a opção de esperar ligada) ou o horário ficou fora da janela. Depois não volta para o A.</div>
     </div>
   </div>
+  <div class="plan hidden" id="planC">
+    <div class="planTag c">C</div>
+    <div class="planBody">
+      <label class="f" for="codeSelC">Plano C · respawn (opcional)</label>
+      <select id="codeSelC"></select>
+      <input type="text" id="codeC" class="hidden codeIn" maxlength="6" autocomplete="off" spellcheck="false" placeholder="Digite o código, ex.: Y11">
+      <div class="hint" id="codeNameC">&nbsp;</div>
+      <div class="live blank" id="liveC">&nbsp;</div>
+      <div class="hint">Só é usado se o Plano B também falhar. Depois não volta para o A nem para o B.</div>
+    </div>
+  </div>
+  <div class="row" style="margin-top:8px"><button class="link shrink" id="saveFav" type="button">Salvar este plano (respawns, janela e opções)</button></div>
   <label class="check"><input type="checkbox" id="windowOn">
     <span>Monitorar janela de início
     <small>Só pega se a sua hunt for começar dentro deste horário (hora atual + tempo que falta).</small></span></label>
@@ -375,7 +401,7 @@ select:disabled { cursor: default; }
     <span>Gravar vídeo da janela do TeamSpeak
     <small>Só a janela do TS, 5 quadros por segundo, do Iniciar até 10 s depois de enviar. Os vídeos nunca são apagados.</small></span></label>
   <div class="wait-hint subopt hidden" id="recHint">Antes de Iniciar: no TeamSpeak, deixe <b>aberto e selecionado o chat privado com o bot</b> (para o "!next" aparecer no vídeo) e <b>não minimize</b> o TS. Ele pode ficar atrás do Tibia.</div>
-  <div class="subopt"><button class="link" id="openRec" type="button">Abrir pasta das gravações</button></div>
+  <div class="subopt"><button class="link" id="openVideo" type="button">Abrir último vídeo</button> · <button class="link" id="openRec" type="button">Abrir pasta das gravações</button></div>
   <label class="check"><input type="checkbox" id="testMode">
     <span>Modo teste
     <small>Faz tudo, mas não envia nada. Bom para conferir na primeira vez.</small></span></label>
@@ -395,6 +421,9 @@ select:disabled { cursor: default; }
   <div id="lineBox" class="lineBox hidden"></div>
   <div id="calc" class="calc hidden"></div>
   <div class="meta" id="meta"></div>
+  <div id="formatAlert" class="alert hidden" role="alert"></div>
+  <div id="staleAlert" class="alert amber hidden" role="alert"></div>
+  <div id="reply" class="reply hidden"></div>
   <div id="recLine" class="recline hidden"></div>
 </section>
 
@@ -476,9 +505,12 @@ function heroMood(S) {
   if (m.running && m.phase === "pending") return ["É agora!!", "tense"];
   if (m.running && m.phase === "waitingts") return ["Cadê o TeamSpeak?", "sob"];
   if (m.running && m.waitingFor) return ["Desiste do next, vai...", "sob"];
+  if (m.running && m.formatAlert) return ["Não entendi a lista!", "sob"];
+  if (m.running && m.staleAlert) return ["A lista parou?!", "sob"];
   if (m.running) return ["De olho no " + m.code + "...", "sob"];
   if (m.phase === "failed") return ["Não deu dessa vez...", "sob"];
   if (m.phase === "ended") return ["Acabou a janela...", "sob"];
+  if (m.phase === "sent" && m.replyKind === "bad") return ["Ih... confere no TS!", "sob"];
   if (m.phase === "sent") return ["Peguei o next!", "cheer"];
   if (m.phase === "tested") return ["Teste certinho!", "cheer"];
   if (!S.connected) return [S.autoWaiting ? "Cadê o TeamSpeak?" : "Conecte o TeamSpeak!", "sob"];
@@ -489,7 +521,7 @@ function heroMood(S) {
 
 let S = null;                 // último estado vindo do app
 let catalog = [];
-let form = { handler: 0, cid: 0, botUID: "", code: "C1", codeB: "", windowOn: false, windowStart: "20:00", windowEnd: "22:30", testMode: false, waitGiveUp: false, record: false };
+let form = { handler: 0, cid: 0, botUID: "", code: "C1", codeB: "", codeC: "", windowOn: false, windowStart: "20:00", windowEnd: "22:30", testMode: false, waitGiveUp: false, record: false };
 let syncLists = true;         // próxima leitura copia canal/bot escolhidos pelo app
 let firstState = true;
 let busy = false;
@@ -559,6 +591,14 @@ function renderForm() {
   const sameB = hasB && ciB.ok && ciB.c === ci.c;
   if (sameB) { $("codeNameB").classList.remove("hidden"); $("codeNameB").classList.add("err"); $("codeNameB").textContent = "O Plano B não pode ser o mesmo respawn do Plano A."; }
   const badB = hasB && (!ciB.ok || sameB);
+  // Plano C (só aparece com o B escolhido)
+  $("planC").classList.toggle("hidden", !hasB);
+  const otherC = hasB && $("codeSelC").value === "__other";
+  const hasC = hasB && (otherC || !!form.codeC);
+  const ciC = codeHint($("codeNameC"), form.codeC, otherC, "Digite o código do Plano C.");
+  const sameC = hasC && ciC.ok && (ciC.c === ci.c || (ciB.ok && ciC.c === ciB.c));
+  if (sameC) { $("codeNameC").classList.remove("hidden"); $("codeNameC").classList.add("err"); $("codeNameC").textContent = "O Plano C não pode repetir o respawn do Plano A ou do B."; }
+  const badC = hasC && (!ciC.ok || sameC);
   // Janela
   $("winRow").classList.toggle("off", !form.windowOn);
   $("winStart").disabled = $("winEnd").disabled = !form.windowOn || !!running;
@@ -572,19 +612,22 @@ function renderForm() {
   const bn = botName(form.botUID);
   const pv = $("preview");
   pv.textContent = "";
-  if (ci.ok && bn && !badB) {
+  if (ci.ok && bn && !badB && !badC) {
     pv.append(form.testMode ? "Modo teste: mostraria " : "Vai enviar ");
     const c = document.createElement("code"); c.textContent = "!next " + ci.c; pv.append(c);
-    if (hasB) { pv.append(" (ou "); const c2 = document.createElement("code"); c2.textContent = "!next " + ciB.c; pv.append(c2, " no Plano B)"); }
+    if (hasB) { pv.append(" (ou "); const c2 = document.createElement("code"); c2.textContent = "!next " + ciB.c; pv.append(c2, " no Plano B"); }
+    if (hasC) { pv.append(", "); const c3 = document.createElement("code"); c3.textContent = "!next " + ciC.c; pv.append(c3, " no Plano C"); }
+    if (hasB) pv.append(")");
     pv.append(" para " + bn + ", uma única vez, quando o 1º next estiver livre (já ao Iniciar ou quando alguém entrar na hunt" + (form.waitGiveUp ? "; se já tiver next, quando ele desistir" : "") + ")" + (form.windowOn && !badWin ? " e a sua hunt for começar entre " + form.windowStart + " e " + form.windowEnd : "") + ".");
     if (form.record) pv.append(" Grava vídeo da janela do TeamSpeak.");
   } else {
-    pv.append(!bn ? "Escolha acima quem recebe o comando." : badB ? "Arrume o Plano B ou escolha \"Sem Plano B\"." : "Escolha o respawn do Plano A.");
+    pv.append(!bn ? "Escolha acima quem recebe o comando." : badB ? "Arrume o Plano B ou escolha \"Sem Plano B\"." : badC ? "Arrume o Plano C ou escolha \"Sem Plano C\"." : "Escolha o respawn do Plano A.");
   }
   $("recHint").classList.toggle("hidden", !form.record || !!running);
   const go = $("go");
   if (running) { go.className = "stop"; go.textContent = "Parar"; go.disabled = false; }
-  else { go.className = "start"; go.textContent = form.testMode ? "Iniciar teste" : "Iniciar"; go.disabled = !connected || !ci.ok || !bn || !form.cid || badB || badWin || busy; }
+  else { go.className = "start"; go.textContent = form.testMode ? "Iniciar teste" : "Iniciar"; go.disabled = !connected || !ci.ok || !bn || !form.cid || badB || badC || badWin || busy; }
+  $("openVideo").disabled = !(S && S.rec && S.rec.hasLast);
 }
 
 function fmtSecs(n) {
@@ -638,13 +681,16 @@ function render() {
     if (!form.codeB) $("codeSelB").value = "";
     else if (catalog.some(r => r.code === form.codeB)) $("codeSelB").value = form.codeB;
     else { $("codeSelB").value = "__other"; $("codeB").classList.remove("hidden"); }
+    form.codeC = form.codeB ? (S.codeC || "") : "";
+    setCodeSel("codeSelC", "codeC", form.codeC);
     $("windowOn").checked = form.windowOn; $("winStart").value = form.windowStart; $("winEnd").value = form.windowEnd;
     form.waitGiveUp = !!S.waitGiveUp; form.record = !!S.record;
     $("waitGiveUp").checked = form.waitGiveUp; $("record").checked = form.record;
     $("port").value = S.port || 25639;
     $("remember").checked = S.hasSavedKey ? true : S.remember !== false;
   }
-  for (const id of ["server", "channel", "bot", "code", "codeSel", "codeB", "codeSelB", "windowOn", "testMode", "waitGiveUp", "record", "savePreset"]) $(id).disabled = S.monitor.running;
+  for (const id of ["server", "channel", "bot", "code", "codeSel", "codeB", "codeSelB", "codeC", "codeSelC", "windowOn", "testMode", "waitGiveUp", "record", "savePreset", "saveFav"]) $(id).disabled = S.monitor.running;
+  renderFavs();
   if ($("clock").textContent !== S.now) $("clock").textContent = S.now || "--:--:--";
   renderForm();
 
@@ -675,13 +721,14 @@ function render() {
   const showPlans = m.codeA && (m.running || ["sent", "tested", "failed", "ended", "stopped", "error"].includes(m.phase));
   pl.classList.toggle("hidden", !showPlans);
   if (showPlans) {
-    const sig = [m.codeA, m.codeB, m.plan].join("|");
+    const sig = [m.codeA, m.codeB, m.codeC, m.plan].join("|");
     if (pl.dataset.sig !== sig) {
       pl.dataset.sig = sig; pl.textContent = "";
       const mk = (letter, code) => { const sp = document.createElement("span"); sp.textContent = "Plano " + letter + " · " + code;
-        if (m.plan === letter) sp.className = "cur"; else if (letter === "A" && m.plan === "B") sp.className = "gone"; return sp; };
+        if (m.plan === letter) sp.className = "cur"; else if (letter < m.plan) sp.className = "gone"; return sp; };
       pl.append(mk("A", m.codeA));
       if (m.codeB) pl.append(mk("B", m.codeB));
+      if (m.codeC) pl.append(mk("C", m.codeC));
     }
   }
   const cl = $("calc");
@@ -707,10 +754,31 @@ function render() {
     meta.append(sp);
   }
 
+  // Avisos e resposta do bot
+  for (const [id, txt] of [["formatAlert", m.formatAlert], ["staleAlert", m.staleAlert]]) {
+    const el = $(id), show = !!txt && (m.running || m.phase === "sent" || m.phase === "tested");
+    el.classList.toggle("hidden", !show);
+    if (show && el.textContent !== "⚠ " + txt) el.textContent = "⚠ " + txt;
+  }
+  const rp = $("reply");
+  const rk = m.phase === "sent" ? (m.replyKind || "") : "";
+  rp.classList.toggle("hidden", !rk);
+  if (rk) {
+    const head = { wait: "Esperando a resposta do bot...", ok: "✓ Confirmado pelo bot: você é o 1º next.",
+      bad: "✗ Atenção: o bot NÃO confirmou o 1º next. Confira no TeamSpeak (o app não manda outro comando).",
+      check: "? Não deu para confirmar pela resposta do bot. Confira no TeamSpeak.",
+      none: "? O bot não respondeu. Confira o privado dele no TeamSpeak." }[rk] || "";
+    const sig = rk + "|" + (m.replyText || "");
+    if (rp.dataset.sig !== sig) {
+      rp.dataset.sig = sig; rp.className = "reply " + rk; rp.textContent = head;
+      if (m.replyText) { const sm = document.createElement("small"); sm.textContent = "Resposta: " + m.replyText; rp.append(sm); }
+    }
+  }
+
   // Gravação
   const rl = $("recLine"), rec = S.rec || {};
   let recSig = "";
-  if (rec.on) recSig = "on|" + rec.file + "|" + fmtSecs(rec.seconds || 0) + "|" + rec.mb + "|" + (rec.note || "");
+  if (rec.on) recSig = "on|" + rec.file + "|" + fmtSecs(rec.seconds || 0) + "|" + rec.mb + "|" + (rec.note || "") + "|" + m.running;
   else if (rec.last && m.record) recSig = "saved|" + rec.last;
   if (rl.dataset.sig !== recSig) {
     rl.dataset.sig = recSig; rl.textContent = "";
@@ -723,9 +791,11 @@ function render() {
       if (rec.note) { const w = document.createElement("span"); w.className = "warn"; w.textContent = rec.note; rl.append(w); }
     } else if (recSig) {
       rl.append("Vídeo salvo: " + rec.last);
+      const bv = document.createElement("button"); bv.type = "button"; bv.className = "link"; bv.textContent = "Abrir vídeo";
+      bv.onclick = () => action(() => api("openvideo", {}));
       const b = document.createElement("button"); b.type = "button"; b.className = "link"; b.textContent = "Abrir pasta";
       b.onclick = () => action(() => api("openrec", {}));
-      rl.append(b);
+      rl.append(bv, b);
     }
   }
 
@@ -754,8 +824,8 @@ async function peekLoop() {
   try {
     const ci = codeInfo(form.code);
     if (S && S.connected && !S.monitor.running && form.cid) {
-      const ciB = codeInfo(form.codeB);
-      const pv = await api("peek", { cid: form.cid, code: ci.ok ? ci.c : "", codeB: ciB.ok ? ciB.c : "" });
+      const ciB = codeInfo(form.codeB), ciC = codeInfo(form.codeC);
+      const pv = await api("peek", { cid: form.cid, code: ci.ok ? ci.c : "", codeB: ciB.ok ? ciB.c : "", codeC: form.codeB && ciC.ok ? ciC.c : "" });
       const info = $("chanInfo"), live = $("live");
       info.className = "hint"; live.className = "live blank";
       if (!pv.ok) { info.textContent = pv.error || ""; live.textContent = "\u00a0"; }
@@ -770,6 +840,8 @@ async function peekLoop() {
         live.textContent = ci.ok ? pv.summary : "\u00a0";
         $("liveB").className = "live on" + (pv.summaryB ? "" : " blank");
         $("liveB").textContent = pv.summaryB || "\u00a0";
+        $("liveC").className = "live on" + (pv.summaryC ? "" : " blank");
+        $("liveC").textContent = pv.summaryC || "\u00a0";
       }
     } else if (S && !S.connected) { $("chanInfo").textContent = "\u00a0"; $("live").textContent = "\u00a0"; }
   } catch (e) {}
@@ -885,8 +957,70 @@ $("codeSelB").onchange = () => {
   $("codeB").classList.toggle("hidden", v !== "__other");
   if (v === "__other") { form.codeB = $("codeB").value.trim().toUpperCase(); $("codeB").focus(); }
   else form.codeB = v;
+  if (!v) { form.codeC = ""; setCodeSel("codeSelC", "codeC", ""); } // sem B, sem C
   renderForm(); peekSoon();
 };
+$("codeC").oninput = () => { form.codeC = $("codeC").value.trim().toUpperCase(); renderForm(); peekSoon(); };
+$("codeC").addEventListener("change", () => { const ci = codeInfo($("codeC").value); if (ci.ok) { $("codeC").value = ci.c; form.codeC = ci.c; } renderForm(); });
+$("codeSelC").onchange = () => {
+  const v = $("codeSelC").value;
+  $("codeC").classList.toggle("hidden", v !== "__other");
+  if (v === "__other") { form.codeC = $("codeC").value.trim().toUpperCase(); $("codeC").focus(); }
+  else form.codeC = v;
+  renderForm(); peekSoon();
+};
+// Coloca um código numa lista de respawns (ou em "Outro código").
+function setCodeSel(selId, inId, code) {
+  $(inId).value = code || "";
+  const known = catalog.some(r => r.code === code);
+  $(selId).value = !code ? (selId === "codeSel" ? "C1" : "") : known ? code : "__other";
+  $(inId).classList.toggle("hidden", !code || known);
+}
+// Planos salvos (favoritos)
+let favSig = "";
+function renderFavs() {
+  const list = (S && S.favorites) || [];
+  const sig = JSON.stringify([list, S && S.monitor.running]);
+  if (sig === favSig) return;
+  favSig = sig;
+  $("favBox").classList.toggle("hidden", !list.length);
+  const box = $("favChips"); box.textContent = "";
+  for (const f of list) {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "chip"; b.disabled = S.monitor.running;
+    b.title = (f.codes || []).map((c, i) => "Plano " + "ABC"[i] + ": " + c).join(" · ") + (f.windowOn ? " · janela " + f.windowStart + "–" + f.windowEnd : " · sem janela") +
+      (f.waitGiveUp ? " · espera o next desistir" : "") + (f.record ? " · grava vídeo" : "");
+    const name = document.createElement("span"); name.textContent = f.name;
+    const x = document.createElement("span"); x.className = "x"; x.textContent = "×"; x.title = "Apagar este plano salvo";
+    b.append(name, x);
+    b.onclick = (e) => {
+      if (e.target === x) {
+        e.stopPropagation();
+        if (confirm("Apagar o plano salvo \"" + f.name + "\"?")) action(() => api("fav/delete", { name: f.name }));
+        return;
+      }
+      const c = f.codes || [];
+      form.code = c[0] || "C1"; form.codeB = c[1] || ""; form.codeC = c[2] || "";
+      setCodeSel("codeSel", "code", form.code); setCodeSel("codeSelB", "codeB", form.codeB); setCodeSel("codeSelC", "codeC", form.codeC);
+      form.windowOn = !!f.windowOn; form.windowStart = f.windowStart || form.windowStart; form.windowEnd = f.windowEnd || form.windowEnd;
+      $("windowOn").checked = form.windowOn; $("winStart").value = form.windowStart; $("winEnd").value = form.windowEnd;
+      form.waitGiveUp = !!f.waitGiveUp; form.record = !!f.record;
+      $("waitGiveUp").checked = form.waitGiveUp; $("record").checked = form.record;
+      renderForm(); peekSoon(); hideNotice();
+    };
+    box.append(b);
+  }
+}
+$("saveFav").onclick = () => {
+  const ci = codeInfo(form.code);
+  if (!ci.ok) { alertBox("Escolha o respawn do Plano A antes de salvar."); return; }
+  const name = prompt("Nome do plano salvo (ex.: Noite):", "");
+  if (name === null) return;
+  const codes = [form.code, form.codeB, form.codeB ? form.codeC : ""].filter(Boolean).map(c => codeInfo(c).c);
+  action(() => api("fav/save", { name: name.trim(), codes, windowOn: form.windowOn, windowStart: form.windowStart, windowEnd: form.windowEnd,
+    waitGiveUp: form.waitGiveUp, record: form.record }));
+};
+$("openVideo").onclick = () => action(() => api("openvideo", {}));
 $("windowOn").onchange = () => { form.windowOn = $("windowOn").checked; renderForm(); };
 // Horário em 24 h: aceita "20:00", "2000", "20h00", "20" e arruma para "20:00".
 function tidyHM(v) {
@@ -907,8 +1041,8 @@ $("openRec").onclick = () => action(() => api("openrec", {}));
 $("go").onclick = () => action(async () => {
   if (S.monitor.running) { await api("stop", {}); return; }
   const ci = codeInfo(form.code);
-  const ciB = codeInfo(form.codeB);
-  await api("start", { handler: form.handler, cid: form.cid, botUID: form.botUID, code: ci.c, codeB: form.codeB ? ciB.c : "",
+  const ciB = codeInfo(form.codeB), ciC = codeInfo(form.codeC);
+  await api("start", { handler: form.handler, cid: form.cid, botUID: form.botUID, code: ci.c, codeB: form.codeB ? ciB.c : "", codeC: form.codeB && form.codeC ? ciC.c : "",
     windowOn: form.windowOn, windowStart: form.windowStart, windowEnd: form.windowEnd, testMode: form.testMode,
     waitGiveUp: form.waitGiveUp, record: form.record });
 });
@@ -925,7 +1059,8 @@ window.addEventListener("pagehide", () => { try { navigator.sendBeacon("/api/bye
   try {
     catalog = await api("catalog");
     const nb = document.createElement("option"); nb.value = ""; nb.textContent = "Sem Plano B"; $("codeSelB").appendChild(nb);
-    for (const sel of [$("codeSel"), $("codeSelB")]) {
+    const nc = document.createElement("option"); nc.value = ""; nc.textContent = "Sem Plano C"; $("codeSelC").appendChild(nc);
+    for (const sel of [$("codeSel"), $("codeSelB"), $("codeSelC")]) {
       let group = null, region = "";
       for (const r of catalog) {
         if (r.region !== region) { region = r.region; group = document.createElement("optgroup"); group.label = region; sel.appendChild(group); }

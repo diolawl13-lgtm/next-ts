@@ -1,6 +1,6 @@
 # Next TS — resumo completo do projeto (para continuar no Claude Code)
 
-> Junto com este resumo vai o arquivo **Next-TS-1.4.3.zip** (última versão). Dentro dele, a pasta `Next-TS/codigo-fonte` tem todo o código, os testes e as ferramentas de build.
+> Junto com este resumo vai o arquivo **Next-TS-1.5.0.zip** (última versão; a última confirmada no TS real é a 1.4.3). Dentro dele, a pasta `Next-TS/codigo-fonte` tem todo o código, os testes e as ferramentas de build.
 
 ---
 
@@ -29,7 +29,8 @@ O **Next TS** fica de olho na lista de claimeds que o x3tBot publica na **descri
 - A **1.4.0 (13/10/2026)** trouxe "esperar o next desistir" e gravação em vídeo.
 - A **1.4.1 (13/10/2026)** corrigiu a leitura do formato novo do x3tBot de 13/10 (tempo com espaços `[ 01:45 ]` e o estado `Aceitar`).
 - A **1.4.2 (13/10/2026)** trouxe a regra nova "pega quem já está caçando" e a gravação mais robusta. **Funcionou perfeitamente no TS real** (confirmado por mim em 13/10, com vídeo: `2026-10-13_20-00-12_D13_teste.avi`, janela do TS 2576x1408).
-- A versão atual é a **1.4.3 (13/10/2026)**: o vídeo mostra **só a janela do TS** (sem a faixa preta de baixo e sem bordas) e fica bem menor. **VERSÃO FUNCIONAL: confirmada por mim no TS real em 14/10/2026.** No GitHub fica marcada com a etiqueta `v1.4.3-funcional`. Se algo der errado no futuro, é para esta versão que se volta.
+- A **1.4.3 (13/10/2026)**: o vídeo mostra **só a janela do TS** (sem a faixa preta de baixo e sem bordas) e fica bem menor. **VERSÃO FUNCIONAL: confirmada por mim no TS real em 14/10/2026.** É o commit "Marca a 1.4.3 como versão funcional" (c5dbe5d) no ramo `claude/inspiring-edison-cu3pka` (a etiqueta `v1.4.3-funcional` não subiu para o GitHub). Se algo der errado no futuro, é para esta versão que se volta.
+- A versão atual é a **1.5.0 (14/10/2026)**: avisos de lista parada e de formato, conferência da resposta do bot, Plano C, planos salvos e "Abrir último vídeo". Testada no TS simulado e no Wine; ainda não testei no TS real.
 
 ---
 
@@ -75,7 +76,7 @@ R9 - [ Aceitar 00:03 ] Upper Roshamuul (Tier 1): Next: Alxoff — aguardando ace
 
 ---
 
-## 4. Regras atuais do app (versão 1.4.3, combinadas comigo)
+## 4. Regras atuais do app (versão 1.5.0, combinadas comigo)
 
 1. **Só 1º next.** Eu não posso mais pegar 2º next. A opção de 2º next e a opção "pegar logo se já estiver disponível" foram removidas.
 2. **Quem já está caçando ao Iniciar (mudou na 1.4.2, "sempre pegar"):** se já tiver alguém caçando e **ninguém no next**, e a conta der **dentro da janela** (ou a janela estiver desligada), o app pega **na hora** (atraso de 1 a 2 s + conferência). Exemplo do dia 13/10: 19:26 + `[ 00:35 ]` = 20:01, dentro de 20:00–22:30.
@@ -92,12 +93,12 @@ R9 - [ Aceitar 00:03 ] Upper Roshamuul (Tier 1): Next: Alxoff — aguardando ace
    - Funciona passando da meia-noite (ex.: 23:00 às 01:00).
    - **Passou do fim da janela, o app para sozinho** ("Janela encerrada").
    - Se a janela de hoje já acabou quando eu clico em Iniciar, ele avisa e não começa.
-   - Com a janela ligada, se a linha não mostrar o tempo, ele não envia (não tem como conferir).
-5. **Plano A e Plano B** (o B é opcional; a janela é a mesma para os dois).
+   - Linha sem o tempo que falta (formato estranho): o app **não age por ela**, com ou sem janela (mudou na 1.5.0; antes, com a janela desligada, ele agia mesmo sem o tempo), e avisa (regra 15).
+5. **Planos A, B e C** (B e C opcionais; o C só aparece com o B escolhido; a janela é a mesma para todos; o C foi pedido em 14/10, "até 3").
    - O Plano A **falha** quando alguém entra na hunt e já tem next (pegaram antes de mim), quando alguém pega o next durante a espera, ou quando o horário fica fora da janela.
    - A falhou: **passa para o B e NUNCA volta para o A.**
    - O B segue as mesmas regras. Na troca, quem **já está** caçando no B sem next (dentro da janela) é pego na hora, igual à regra 2.
-   - B falhou: **o app para.**
+   - B falhou: passa para o C (se tiver), sem voltar. O último plano falhou: **o app para.**
    - Se A e B ficassem bons ao mesmo tempo, vale o A.
    - **Pega um next só, NUNCA dois.**
 6. Respawn ficou livre durante a espera: não é falha, continua esperando.
@@ -126,6 +127,12 @@ R9 - [ Aceitar 00:03 ] Upper Roshamuul (Tier 1): Next: Alxoff — aguardando ace
     - Quadro igual ao anterior não é gravado de novo (vídeo menor). Formato AVI/MJPEG: abre no VLC.
     - Problema na gravação nunca atrapalha o monitoramento nem o envio.
     - Envio "por escrito" (digitar no TS) em vez do ClientQuery: eu disse **"deixa pra depois"**.
+    - Botão **"Abrir último vídeo"** (abre no player padrão, ex.: VLC) e "Abrir vídeo" quando a gravação termina.
+15. **Avisos (sem som)**, na Situação e no Histórico; o app continua vigiando:
+    - **Lista parada**: a lista não muda há **5 minutos** (com pelo menos uma linha de respawn; o tempo muda a cada minuto) → aviso amarelo "o bot pode ter travado". Some quando a lista volta a mudar.
+    - **Formato**: a linha do meu respawn não é entendida (inclusive sem o tempo que falta), ou mais da metade das linhas não é entendida, por **10 s** → aviso vermelho com a linha. Não envia nada por linha não entendida. Some quando volta ao normal.
+16. **Resposta do bot ao !next** (pedido em 14/10; antes eu tinha achado desnecessário destacar a resposta): até 1 minuto depois de enviar, a 1ª mensagem do bot é conferida. "posição 1" → verde "Confirmado". Posição 2+ ou erro → vermelho "confira no TS". Outra coisa → amarelo "não deu para confirmar". Sem resposta em **15 s** → amarelo. **Nunca manda um segundo comando.** Único exemplo real conhecido (MissClick Bot Test): "Você entrou na posição 1 da fila de C1. Tempo reservado: 2:00." Ainda falta exemplo de resposta do x3tBot.
+17. **Planos salvos (favoritos)**: nome + respawns (A, B, C) + janela + opções (esperar o next desistir, gravar). Não guarda canal/bot nem Modo teste. Até 20; mesmo nome substitui.
 
 ---
 
@@ -151,14 +158,14 @@ R9 - [ Aceitar 00:03 ] Upper Roshamuul (Tier 1): Next: Alxoff — aguardando ace
 |---|---|
 | `main.go` | Servidor local, rotas `/api/...`, abre o navegador, uma cópia só, `initClock()` |
 | `app.go` | Motor: conexão, leitura a cada 0,5 s, Plano A/B, janela, atraso, envio, estado da janela |
-| `queue.go` | Lê a lista do x3tBot (formatos novo e antigo, tempo que falta, contagem do next) |
+| `queue.go` | Lê a lista do x3tBot (formatos novo e antigo, tempo que falta, contagem do next) e confere se entende a lista (`ListHealth`) |
 | `record.go` | Gravação: arquivo AVI/MJPEG, só a janela do TS, imagem nova ou repetida (`frameDiff`), início/fim |
 | `capture_windows.go` | Acha a janela do TS e copia a imagem dela (Windows) |
 | `capture_other.go` | Janela do TS de mentira para os testes no Linux (`NEXTTS_FAKE_TS`) |
 | `fonte_dados.go` | Letras dos avisos do vídeo (gerado por `build/gerar_fonte.py`) |
 | `window.go` | Janela de horário (`ParseHM`, `ResolveWindow`) e relógio (`now()`) |
 | `query.go` | Cliente do ClientQuery do TS3 |
-| `config.go` | Versão (`1.4.3`), preferências salvas, log em arquivo |
+| `config.go` | Versão (`1.5.0`), preferências salvas (inclusive planos salvos), log em arquivo |
 | `presets.go` | Atalhos de claim |
 | `catalog.go` | Lista dos respawns |
 | `platform_windows.go` / `platform_other.go` | DPAPI, abrir o navegador, caixas de mensagem |
@@ -167,7 +174,7 @@ R9 - [ Aceitar 00:03 ] Upper Roshamuul (Tier 1): Next: Alxoff — aguardando ace
 | `record_test.go` | Testes do gravador e da comparação de nomes (`go test`) |
 | `capture_windows_test.go` | Teste da captura de verdade no Windows/Wine (`NEXTTS_WINE_TEST=1`, `desktop` ou `outro`; executável chamado `ts3client_...`) |
 | `testes/mock_ts3.py` | TeamSpeak simulado (ClientQuery falso com x3tBot e MissClick Bot Test) |
-| `testes/cenarios.py` | 77 cenários de ponta a ponta com o app de verdade (usa `ffprobe`/`ffmpeg` para conferir os vídeos) |
+| `testes/cenarios.py` | 85 cenários de ponta a ponta com o app de verdade (usa `ffprobe`/`ffmpeg` para conferir os vídeos) |
 | `testes/interface.py` | Testa a janelinha num Chromium (Playwright) e tira prints |
 | `build/gerar_recursos.py` | Gera ícone e informações de versão do .exe (`.syso`) |
 | `build/gerar_fonte.py` | Gera `fonte_dados.go` (letras da faixa do vídeo) |
@@ -177,14 +184,14 @@ R9 - [ Aceitar 00:03 ] Upper Roshamuul (Tier 1): Next: Alxoff — aguardando ace
 ### Como compilar e testar
 ```bash
 python3 build/gerar_fonte.py .
-python3 build/gerar_recursos.py . 1.4.3
+python3 build/gerar_recursos.py . 1.5.0
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -H windowsgui" -o "Next TS.exe" .
 python3 build/conferir_exe.py "Next TS.exe"
 go test ./...
-go build -race -o nextts-linux . && python3 -I testes/cenarios.py ./nextts-linux     # 77/77
+go build -race -o nextts-linux . && python3 -I testes/cenarios.py ./nextts-linux     # 85/85
 python3 -I testes/interface.py ./nextts-linux prints/                              # INTERFACE OK
 ```
-Variáveis só para testes: `NEXTTS_DATA` (pasta de dados), `NEXTTS_NO_BROWSER=1`, `NEXTTS_AUTO_EVERY`, `NEXTTS_TEST_CLOCK=HH:MM:SS` (simula o relógio), `NEXTTS_FAKE_TS=<arquivo>` (janela do TS de mentira no Linux: texto, `min` ou `none`; linha `ROLANDO: ...` vira um aviso rolando) e `NEXTTS_PRINTS=<pasta>` (salva imagens dos vídeos dos cenários).
+Variáveis só para testes: `NEXTTS_DATA` (pasta de dados), `NEXTTS_NO_BROWSER=1`, `NEXTTS_AUTO_EVERY`, `NEXTTS_TEST_CLOCK=HH:MM:SS` (simula o relógio), `NEXTTS_FAKE_TS=<arquivo>` (janela do TS de mentira no Linux: texto, `min` ou `none`; linha `ROLANDO: ...` vira um aviso rolando) e `NEXTTS_PRINTS=<pasta>` (salva imagens dos vídeos dos cenários) e `NEXTTS_ALERT_FAST=1` (avisos com tempos curtos: lista parada 3 s, formato 1,5 s, resposta 3 s).
 
 O ZIP entregue tem: `Next-TS/Next TS.exe`, `Next-TS/LEIA-ME.txt` e `Next-TS/codigo-fonte/`.
 
@@ -202,15 +209,18 @@ O ZIP entregue tem: `Next-TS/Next TS.exe`, `Next-TS/LEIA-ME.txt` e `Next-TS/codi
 - **1.4.1 (13/10):** correção do formato novo do x3tBot: tempo com espaços `[ 01:45 ]` (na 1.3.0 o app não pegou o next do C1 com a janela ligada: "não consegui ler o tempo") e estado `[ Aceitar ... ]` (não é entrada nem falha). 70 cenários aprovados.
 - **1.4.2 (13/10):** regra 2 nova: pega quem **já está** caçando sem next ao Iniciar (e na troca para o B), se a conta der dentro da janela; fora da janela ou com next, não falha e espera a próxima. Gravação: escolhe melhor a janela do TS, tenta 3 jeitos de copiar, anota tudo no `registro.txt`, avisa se o TS estiver como administrador. 76 cenários aprovados; captura testada no Wine também com o TS como outro programa. **Funcionou perfeitamente no TS real.**
 - **1.4.3 (13/10):** vídeo só com a janela do TS (sem faixa e sem bordas); o que se mexe sozinho (aviso rolando) atualiza a cada 2 s, o resto na hora (vídeo de ~6-7 GB/h para ~0,6-0,7 GB/h numa tela 2576x1408). 77 cenários aprovados. **VERSÃO FUNCIONAL (confirmada no TS real em 14/10; etiqueta `v1.4.3-funcional`).** Pendente: uma tarja preta aparece sobre a barra de título do TS no vídeo real (canto de cima à esquerda); falta o `registro.txt` para saber qual jeito de copiar foi usado.
+- **1.5.0 (14/10):** avisos de lista parada (5 min) e de formato (10 s; linha sem tempo não é usada, com ou sem janela); conferência da resposta do bot ao !next (nunca manda 2º comando); Plano C; planos salvos; "Abrir último vídeo". 85 cenários aprovados. Tarja preta do vídeo: ainda esperando o `registro.txt`.
 
 ---
 
 ## 7. Ideias pendentes (NÃO fazer sem eu pedir)
 
 - **Modo "só Enter" / envio "por escrito":** o app digitaria (ou só apertaria Enter) no chat privado do x3tBot em vez de mandar pelo ClientQuery. Eu disse "deixa pra depois" (de novo em 13/10). Riscos explicados: rouba o foco do Tibia, precisa da aba certa (senão vai para o canal), mexe no texto digitado. Para o bot e os outros membros, os dois jeitos são iguais.
-- Ideias que já foram sugeridas: aviso de "formato da lista mudou", botão "Copiar lista", favoritos, atalhos de teclado.
-- Achei desnecessário: acompanhar a fila e destacar a resposta do x3tBot.
-- A 1.4.3 já foi testada no TS real e funciona. Ponto de partida para qualquer mudança: a etiqueta `v1.4.3-funcional`.
+- Sugestões de 14/10: feitas na 1.5.0 (aviso de lista parada, aviso de formato, conferir resposta do bot, planos salvos, Plano C, abrir último vídeo). **Não quero** o relatório das tentativas (planilha para o TCC).
+- Ainda não feitas: botão "Copiar lista", atalhos de teclado.
+- Achei desnecessário: acompanhar a fila.
+- Pendente: tarja preta no topo do vídeo (preciso mandar o `registro.txt`) e exemplos de resposta do x3tBot (prints do privado).
+- A 1.4.3 já foi testada no TS real e funciona (commit c5dbe5d). Próximo passo: testar a 1.5.0 no TS real, em Modo teste primeiro.
 
 ## 8. Coisas que ficaram de fora na conversa anterior
 

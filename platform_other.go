@@ -33,6 +33,13 @@ func openWindow(url, profileDir string) error { return openDefaultBrowser(url) }
 
 func openDefaultBrowser(url string) error { return exec.Command("xdg-open", url).Start() }
 
+func openFile(path string) error {
+	if os.Getenv("NEXTTS_NO_BROWSER") != "" {
+		return nil // testes: não abre nada
+	}
+	return exec.Command("xdg-open", path).Start()
+}
+
 func openFolder(dir string) error {
 	if os.Getenv("NEXTTS_NO_BROWSER") != "" {
 		return nil // testes: não abre nada

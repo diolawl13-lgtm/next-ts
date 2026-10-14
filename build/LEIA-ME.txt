@@ -1,5 +1,30 @@
-NEXT TS 1.4.3 - COMO USAR
+NEXT TS 1.5.0 - COMO USAR
 ==========================
+
+NOVIDADES DA 1.5.0
+------------------
+- AVISO DE LISTA PARADA: se a lista do canal não mudar por 5 minutos
+  (o tempo de quem caça muda a cada minuto, então parada = o bot pode
+  ter travado), aparece um aviso amarelo na Situação e no Histórico.
+  O app continua vigiando. Quando a lista volta, o aviso some.
+- AVISO DE FORMATO: se o app deixar de entender a linha do seu respawn,
+  ou mais da metade da lista, por 10 segundos, aparece um aviso vermelho
+  com a linha que ele não entendeu. Enquanto for assim, ele NÃO envia
+  nada por essa linha. Isso vale também para linha sem o tempo que falta
+  (antes, com a janela desligada, ele agia mesmo sem o tempo).
+- CONFERE A RESPOSTA DO BOT: depois de enviar, o app lê a resposta.
+  "Você entrou na posição 1..." = aparece em verde "Confirmado: você é o
+  1º next". Posição 2 ou mais, ou erro = aviso em vermelho para conferir
+  no TS. Sem resposta em 15 s = aviso amarelo. O app NUNCA manda um
+  segundo comando: a regra continua "um next só".
+- PLANO C: escolhendo o Plano B, aparece o Plano C. Falhou o A, vai para
+  o B; falhou o B, vai para o C. Nunca volta.
+- PLANOS SALVOS: "Salvar este plano" guarda os respawns (A, B, C), a
+  janela e as opções (esperar o next desistir, gravar vídeo) com um nome.
+  Um clique no nome carrega tudo de novo; o "x" apaga. O canal, o bot e
+  o Modo teste não são guardados.
+- "ABRIR ÚLTIMO VÍDEO": abre a última gravação direto no seu player
+  (ex.: VLC). Também aparece "Abrir vídeo" quando uma gravação termina.
 
 NOVIDADES DA 1.4.3
 ------------------
@@ -245,9 +270,11 @@ AS REGRAS DO APP
   next desistir" ligado, ele espera o next sair da fila e então manda; se
   o next entrar na hunt em vez de desistir, aí o plano falhou.
 - Com a janela ligada: hora atual + tempo que falta tem que cair dentro
-  da janela. Se cair fora, o plano falhou. Se a linha não mostrar o tempo,
-  ele não envia (não tem como conferir).
-- Plano A falhou: vai para o B (se tiver) e não volta. B falhou: para.
+  da janela. Se cair fora, o plano falhou.
+- Linha sem o tempo que falta (formato estranho): ele não age por ela,
+  com ou sem janela, e avisa.
+- Plano A falhou: vai para o B (se tiver) e não volta. B falhou: vai para
+  o C (se tiver). O último falhou: para.
 - Quando dá certo, espera um tempo sorteado entre 1 e 2 segundos, confere
   a lista de novo e só então envia. Se alguém pegar o next nesse meio
   tempo, o plano falhou. Se o respawn ficar livre, ele continua esperando.

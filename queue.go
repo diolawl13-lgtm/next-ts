@@ -263,5 +263,31 @@ func Summarize(st QueueState, position int) string {
 	return "Agora: " + Hunter(st) + " no respawn, " + fila + "."
 }
 
+var reLineCode = regexp.MustCompile(`^\s*(?:[•*·]\s*)?([A-Za-z]{1,3}[0-9]{1,3})\s*[-–—]`)
+
+// ListHealth confere se o app entende a lista: quantas linhas de respawn existem,
+// quantas ele NÃO entende (sem o tempo que falta, ou com formato estranho) e um
+// exemplo de linha não entendida. Usado para avisar quando o x3tBot muda o formato.
+func ListHealth(desc string) (total, bad int, sample string) {
+	for _, ln := range strings.Split(VisibleText(desc), "\n") {
+		if !reAnyLine.MatchString(ln) {
+			continue
+		}
+		m := reLineCode.FindStringSubmatch(ln)
+		if m == nil {
+			continue
+		}
+		total++
+		st := ParseQueue(ln, m[1])
+		if !st.Valid || (!st.HasTimer && !st.Accepting) {
+			bad++
+			if sample == "" {
+				sample = strings.TrimSpace(ln)
+			}
+		}
+	}
+	return total, bad, sample
+}
+
 // HasList: a descrição parece a lista do x3tBot (tem "Last update" ou linhas de respawn).
 func HasList(desc string) bool { return LastUpdate(desc) != "" || ListSize(desc) > 0 }

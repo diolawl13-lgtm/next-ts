@@ -2,13 +2,14 @@
 
 App para Windows que vigia a lista de claimeds do **x3tBot** no **TeamSpeak 3** e manda `!next CÓDIGO` no privado do bot quando alguém entra na hunt do respawn escolhido. Envia uma única vez.
 
-**Versão atual: 1.4.3**
+**Versão atual: 1.5.0**
 
 ## O que ele faz
 - Lê a lista do canal **Claimeds** a cada 0,5 s, pelo plugin **ClientQuery** do TeamSpeak.
 - Só pega o **1º next**. Ao Iniciar, se já tiver alguém caçando sem ninguém no next (e dentro da janela), pega na hora; depois, pega quando **alguém entra na hunt**.
 - **Janela de início** (opcional): hora atual + tempo que falta tem que cair no horário escolhido (ex.: 20:00–22:30).
-- **Plano A / Plano B**: se o A falhar, passa para o B e não volta.
+- **Planos A, B e C**: se um falhar, passa para o próximo e não volta. **Planos salvos** (favoritos) com um clique.
+- **Avisos** (sem som): lista parada há 5 min, formato da lista que o app não entende, e a **resposta do bot** ao `!next` (confirma o 1º next ou avisa se não ficou em 1º).
 - Atraso aleatório de 1 a 2 s, confere de novo e envia.
 - Lê o formato antigo e o novo da lista do x3tBot.
 - **Esperar o next desistir** (opcional): se alguém entra na hunt já com next, espera o next sair da fila e então envia; se o next entrar na hunt, o plano falha.
@@ -21,7 +22,7 @@ Veja o [build/LEIA-ME.txt](build/LEIA-ME.txt).
 ## Como compilar (Go 1.24)
 ```bash
 python3 build/gerar_fonte.py .        # letras dos avisos do vídeo (fonte_dados.go)
-python3 build/gerar_recursos.py . 1.4.3
+python3 build/gerar_recursos.py . 1.5.0
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -H windowsgui" -o "Next TS.exe" .
 python3 build/conferir_exe.py "Next TS.exe"
 ```
@@ -30,7 +31,7 @@ python3 build/conferir_exe.py "Next TS.exe"
 ```bash
 go test ./...
 go build -race -o nextts-linux .
-python3 -I testes/cenarios.py ./nextts-linux        # 77 cenários com TeamSpeak simulado (precisa do ffmpeg/ffprobe)
+python3 -I testes/cenarios.py ./nextts-linux        # 85 cenários com TeamSpeak simulado (precisa do ffmpeg/ffprobe)
 python3 -I testes/interface.py ./nextts-linux prints/  # janelinha no Chromium (precisa do Playwright)
 ```
 

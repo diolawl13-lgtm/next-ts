@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -305,6 +306,44 @@ func TestPrint1310(t *testing.T) {
 	} {
 		if st := ParseQueue(d, "C1"); st.Valid {
 			t.Errorf("deveria ser inválida: %q -> %+v", d, st)
+		}
+	}
+}
+
+func TestListHealth(t *testing.T) {
+	if total, bad, _ := ListHealth(samplePrint1310); total != 6 || bad != 0 {
+		t.Errorf("print de 13/10: %d linhas, %d não entendidas", total, bad)
+	}
+	if total, bad, _ := ListHealth(sampleNew); total == 0 || bad != 0 {
+		t.Errorf("formato novo: %d linhas, %d não entendidas", total, bad)
+	}
+	// Formato que o app não conhece (tempo escrito de outro jeito).
+	weird := "C1 - (1h45) Livraria de Fire (Tier 3): Lord Tenchi\nD7 - (0h15) DT -1 (Tier 1): Fulano\nA2 - [ 00:50 ] Cobra Subsolo (Tier 1): Caipyranho"
+	total, bad, sample := ListHealth(weird)
+	if total != 3 || bad != 2 || !strings.HasPrefix(sample, "C1 - (1h45)") {
+		t.Errorf("formato estranho: %d linhas, %d não entendidas, exemplo %q", total, bad, sample)
+	}
+	if total, _, _ := ListHealth("Last update: 2026-10-13 20:00\nNinguém no claim agora."); total != 0 {
+		t.Errorf("lista vazia: %d", total)
+	}
+}
+
+func TestClassifyReply(t *testing.T) {
+	cases := []struct {
+		msg  string
+		kind string
+		pos  int
+	}{
+		{"Você entrou na posição 1 da fila de C1. Tempo reservado: 2:00.", "ok", 1},
+		{"Voce entrou na posicao 1 da fila de C1.", "ok", 1},
+		{"Você entrou na posição 2 da fila de C1. Tempo reservado: 2:00.", "bad", 2},
+		{"You are now in position 3 for C1", "bad", 3},
+		{"Erro: respawn inválido.", "bad", 0},
+		{"Você está no next de C1.", "check", 0},
+	}
+	for _, c := range cases {
+		if k, p := classifyReply(c.msg); k != c.kind || p != c.pos {
+			t.Errorf("%q: %s %d, quero %s %d", c.msg, k, p, c.kind, c.pos)
 		}
 	}
 }
