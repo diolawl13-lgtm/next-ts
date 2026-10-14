@@ -1,5 +1,14 @@
-NEXT TS 1.5.0 - COMO USAR
+NEXT TS 1.5.1 - COMO USAR
 ==========================
+
+NOVIDADES DA 1.5.1
+------------------
+- Vídeo sem a tarja preta: a tarja aparecia na barra de título do TS (a
+  faixa de cima, onde fica escrito "TeamSpeak 3" e os botões de fechar).
+  Essa barra é desenhada pelo Windows e saía com defeito na cópia. Agora
+  o vídeo grava só o CONTEÚDO da janela do TS (do menu "Conexões" para
+  baixo, até as bordas): sem a barra de título e sem a borda invisível
+  que o Windows coloca nas janelas maximizadas.
 
 NOVIDADES DA 1.5.0
 ------------------

@@ -2,7 +2,7 @@
 
 App para Windows que vigia a lista de claimeds do **x3tBot** no **TeamSpeak 3** e manda `!next CÓDIGO` no privado do bot quando alguém entra na hunt do respawn escolhido. Envia uma única vez.
 
-**Versão atual: 1.5.0**
+**Versão atual: 1.5.1**
 
 ## O que ele faz
 - Lê a lista do canal **Claimeds** a cada 0,5 s, pelo plugin **ClientQuery** do TeamSpeak.
@@ -22,7 +22,7 @@ Veja o [build/LEIA-ME.txt](build/LEIA-ME.txt).
 ## Como compilar (Go 1.24)
 ```bash
 python3 build/gerar_fonte.py .        # letras dos avisos do vídeo (fonte_dados.go)
-python3 build/gerar_recursos.py . 1.5.0
+python3 build/gerar_recursos.py . 1.5.1
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -H windowsgui" -o "Next TS.exe" .
 python3 build/conferir_exe.py "Next TS.exe"
 ```

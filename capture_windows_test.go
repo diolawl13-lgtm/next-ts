@@ -31,6 +31,7 @@ var (
 	tTranslate       = user32.NewProc("TranslateMessage")
 	tDispatch        = user32.NewProc("DispatchMessageW")
 	tShowWindow      = user32.NewProc("ShowWindow")
+	tSetWindowPos    = user32.NewProc("SetWindowPos")
 	tFillRect        = user32.NewProc("FillRect")
 	tGetClientRect   = user32.NewProc("GetClientRect")
 	tBeginPaint      = user32.NewProc("BeginPaint")
@@ -94,6 +95,7 @@ type winSpec struct {
 	title      string
 	exStyle    uintptr
 	x, y, w, h int
+	style      uintptr // 0 = janela normal com barra de título
 }
 
 // testWindows abre as janelas numa thread com fila de mensagens. A primeira é a "principal".
@@ -112,8 +114,12 @@ func testWindows(t *testing.T, specs ...winSpec) ([]uintptr, chan func()) {
 		var hs []uintptr
 		for i, s := range specs {
 			title, _ := syscall.UTF16PtrFromString(s.title)
+			style := s.style
+			if style == 0 {
+				style = 0x10CF0000 // WS_OVERLAPPEDWINDOW | WS_VISIBLE
+			}
 			h, _, _ := tCreateWindowEx.Call(s.exStyle, uintptr(unsafe.Pointer(cls)), uintptr(unsafe.Pointer(title)),
-				0x10CF0000, uintptr(s.x), uintptr(s.y), uintptr(s.w), uintptr(s.h), 0, 0, inst, 0) // WS_OVERLAPPEDWINDOW | WS_VISIBLE
+				style, uintptr(s.x), uintptr(s.y), uintptr(s.w), uintptr(s.h), 0, 0, inst, 0)
 			if i == 0 {
 				tMain = h
 			}
@@ -155,15 +161,27 @@ func resetCapture() {
 	capSkip = [capMethods]bool{}
 }
 
-// redBlue confere a imagem da janela principal: vermelho em cima e azul embaixo.
+// redBlue confere a imagem da janela principal: só o conteúdo dela, vermelho na metade
+// de cima e azul na de baixo, ATÉ AS BORDAS (sem barra de título, sem borda e sem a
+// tarja verde que fica em cima da barra de título).
 func redBlue(t *testing.T, what string, img *image.RGBA) {
 	t.Helper()
 	b := img.Bounds()
-	at := func(fx, fy float64) color.RGBA { return img.RGBAAt(int(fx*float64(b.Dx())), int(fy*float64(b.Dy()))) }
-	top, bottom := at(0.5, 0.40), at(0.5, 0.85)
-	t.Logf("%s: %dx%d, em cima %v, embaixo %v", what, b.Dx(), b.Dy(), top, bottom)
-	if top.R < 200 || top.G > 60 || top.B > 60 || bottom.B < 200 || bottom.R > 60 || bottom.G > 60 {
-		t.Fatalf("%s: cores erradas (em cima %v, embaixo %v)", what, top, bottom)
+	w, h := b.Dx(), b.Dy()
+	red := func(c color.RGBA) bool { return c.R > 200 && c.G < 60 && c.B < 60 }
+	blue := func(c color.RGBA) bool { return c.B > 200 && c.R < 60 && c.G < 60 }
+	t.Logf("%s: %dx%d, canto de cima %v, canto de baixo %v", what, w, h, img.RGBAAt(0, 0), img.RGBAAt(w-1, h-1))
+	for x := 0; x < w; x++ {
+		if !red(img.RGBAAt(x, 0)) || !red(img.RGBAAt(x, h/2-2)) || !blue(img.RGBAAt(x, h-1)) || !blue(img.RGBAAt(x, h/2+2)) {
+			t.Fatalf("%s: coluna %d com cor errada (topo %v, fundo %v): não é só o conteúdo da janela", what, x, img.RGBAAt(x, 0), img.RGBAAt(x, h-1))
+		}
+	}
+	for y := 0; y < h; y++ {
+		for _, x := range []int{0, w - 1} {
+			if c := img.RGBAAt(x, y); !red(c) && !blue(c) {
+				t.Fatalf("%s: borda (%d,%d) com cor %v", what, x, y, c)
+			}
+		}
 	}
 }
 
@@ -179,24 +197,52 @@ func TestCaptureJanelaDoTS(t *testing.T) {
 	// A principal (640x400) e, mais longe, duas que NÃO são a principal:
 	// uma "ferramenta" maior (avisos/overlay) e uma pequena demais.
 	hs, cmds := testWindows(t,
-		winSpec{"TeamSpeak 3", 0, 50, 50, 640, 400},
-		winSpec{"TeamSpeak 3 - aviso", wsExToolWindow, 700, 50, 900, 700},
-		winSpec{"TeamSpeak 3", 0, 700, 600, 150, 100},
+		winSpec{"TeamSpeak 3", 0, 50, 50, 640, 400, 0},
+		winSpec{"TeamSpeak 3 - aviso", wsExToolWindow, 700, 50, 900, 700, 0},
+		winSpec{"TeamSpeak 3", 0, 700, 600, 150, 100, 0},
+		winSpec{"tarja", 0x08 | wsExToolWindow, 900, 800, 50, 10, 0x90000000}, // WS_EX_TOPMOST, WS_POPUP | WS_VISIBLE
 	)
 	resetCapture()
 	if h, _ := findTSWindow(); h != hs[0] {
 		t.Fatalf("escolheu a janela errada: %s", describeWindow(h))
 	}
+	r, _ := windowRect(hs[0])
+	c, _ := clientRect(hs[0])
+	cw, ch := int(c.Right-c.Left), int(c.Bottom-c.Top)
+	t.Logf("janela inteira %dx%d, conteúdo %dx%d (barra de título de %d pontos)", r.Right-r.Left, r.Bottom-r.Top, cw, ch, c.Top-r.Top)
+	// Uma tarja (verde) por cima da barra de título, como a tarja preta do vídeo de 13/10.
+	if bar := int(c.Top - r.Top); bar > 6 {
+		tSetWindowPos.Call(hs[3], ^uintptr(0), uintptr(r.Left+30), uintptr(r.Top+2), 300, uintptr(bar-4), 0x0040) // HWND_TOPMOST, SWP_SHOWWINDOW
+		time.Sleep(500 * time.Millisecond)
+		// Confere que a tarja aparece mesmo na tela, em cima da barra de título (senão o teste não prova nada).
+		screen, _, _ := procGetDC.Call(0)
+		d, _ := newDIB(screen, int(r.Right-r.Left), int(r.Bottom-r.Top))
+		procBitBlt.Call(d.mem, 0, 0, uintptr(r.Right-r.Left), uintptr(r.Bottom-r.Top), screen, uintptr(r.Left), uintptr(r.Top), srcCopy)
+		whole := d.crop(0, 0, int(r.Right-r.Left), int(r.Bottom-r.Top))
+		d.free()
+		procReleaseDC.Call(0, screen)
+		green := 0
+		for i := 0; i < len(whole.Pix); i += 4 {
+			if whole.Pix[i] < 60 && whole.Pix[i+1] > 200 && whole.Pix[i+2] < 60 {
+				green++
+			}
+		}
+		t.Logf("tarja na tela, em cima da barra de título: %d pontos verdes na janela inteira", green)
+		if green == 0 {
+			t.Fatal("a tarja de teste não apareceu na tela")
+		}
+	} else {
+		t.Logf("sem barra de título aqui (%d pontos): o teste da tarja fica para a área de trabalho virtual", bar)
+	}
 	img, st := captureTS()
-	if st != capOK || img == nil || img.Bounds().Dx() != 640 || img.Bounds().Dy() != 400 {
-		t.Fatalf("captura falhou: %v %v", st, img)
+	if st != capOK || img == nil || img.Bounds().Dx() != cw || img.Bounds().Dy() != ch {
+		t.Fatalf("captura falhou: %v %v (esperava %dx%d)", st, img, cw, ch)
 	}
 	redBlue(t, "automático", img)
 
 	// Cada jeito de copiar, sozinho.
-	r, _ := windowRect(hs[0])
 	for m := 0; m < capMethods; m++ {
-		img, why := captureWith(m, hs[0], r, 640, 400)
+		img, why := captureWith(m, hs[0], c)
 		if img == nil {
 			t.Fatalf("%s falhou: %s", capMethodName[m], why)
 		}
@@ -223,7 +269,7 @@ func TestCaptureJanelaDoTS(t *testing.T) {
 	rec.End(0)
 	rec.Close()
 	in := readAVI(t, file)
-	if in.totalFrames < 4 || in.w != 640 || in.h != 400 { // só a janela do TS, do tamanho dela
+	if in.totalFrames < 4 || int(in.w) != cw || int(in.h) != ch { // só o conteúdo da janela do TS
 		t.Fatalf("vídeo: %d quadros, %dx%d", in.totalFrames, in.w, in.h)
 	}
 
