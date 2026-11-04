@@ -173,7 +173,10 @@ try:
         pg.click("#go")
         pg.wait_for_function("document.getElementById('go').textContent.includes('Parar')")
         assert pg.is_disabled("#waitGiveUp") or not pg.is_visible("#waitGiveUp")
-        pg.wait_for_function("document.getElementById('recLine').innerText.includes('Gravando')", timeout=3000)
+        pg.wait_for_function("document.getElementById('recLine').innerText.includes('Gravando a 30 fps')", timeout=3000)
+        assert "últimos 20 s" in pg.inner_text("#recLine"), pg.inner_text("#recLine")
+        time.sleep(1.2)
+        pg.locator("#cardStatus").screenshot(path=f"{OUT}/9b-gravando-ultimos-20s.png")
         assert "espera o next desistir" in pg.inner_text("#summary"), pg.inner_text("#summary")
         time.sleep(1)
         mock.set_desc(desc(OCUP1, *OUTRAS))  # entrou com alguém no next: espera ele desistir
@@ -186,10 +189,14 @@ try:
         pg.wait_for_function("document.getElementById('go').textContent.includes('Iniciar')", timeout=5000)
         assert len(mock.sent) == 2 and mock.sent[1][2] == "!next C1", mock.sent
         time.sleep(0.8)
-        assert "termina em instantes" in pg.inner_text("#recLine"), pg.inner_text("#recLine")
+        rl = pg.inner_text("#recLine")
+        assert "10 s depois do envio" in rl and "faltam" in rl, rl
+        pg.locator("#cardStatus").screenshot(path=f"{OUT}/10b-gravando-10s-depois.png")
         assert "desistiu do next" in pg.inner_text("#log")
         pg.screenshot(path=f"{OUT}/10-enviado-gravando.png", full_page=True)
         pg.wait_for_function("document.getElementById('recLine').innerText.includes('Vídeo salvo')", timeout=15000)
+        assert "depois do envio" in pg.inner_text("#recLine"), pg.inner_text("#recLine")
+        pg.locator("#cardStatus").screenshot(path=f"{OUT}/11b-video-salvo.png")
         pg.screenshot(path=f"{OUT}/11-video-salvo.png", full_page=True)
         pg.click("#recLine button")
         time.sleep(0.4)

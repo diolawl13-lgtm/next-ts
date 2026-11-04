@@ -399,7 +399,7 @@ select:disabled { cursor: default; }
     <small>Se alguém entrar na hunt e já tiver next, não desiste na hora: espera o next sair da fila e então manda. Se em vez disso o next entrar na hunt, o plano falha.</small></span></label>
   <label class="check"><input type="checkbox" id="record">
     <span>Gravar vídeo da janela do TeamSpeak
-    <small>Só a janela do TS, 5 quadros por segundo, do Iniciar até 10 s depois de enviar. Os vídeos nunca são apagados.</small></span></label>
+    <small>Só a janela do TS, <b>30 fps · 20 s antes + 10 s depois</b> do envio (um vídeo de 30 s). Enquanto espera, guarda só os últimos 20 s. Os vídeos nunca são apagados.</small></span></label>
   <div class="wait-hint subopt hidden" id="recHint">Antes de Iniciar: no TeamSpeak, deixe <b>aberto e selecionado o chat privado com o bot</b> (para o "!next" aparecer no vídeo) e <b>não minimize</b> o TS. Ele pode ficar atrás do Tibia.</div>
   <div class="subopt"><button class="link" id="openVideo" type="button">Abrir último vídeo</button> · <button class="link" id="openRec" type="button">Abrir pasta das gravações</button></div>
   <label class="check"><input type="checkbox" id="testMode">
@@ -619,7 +619,7 @@ function renderForm() {
     if (hasC) { pv.append(", "); const c3 = document.createElement("code"); c3.textContent = "!next " + ciC.c; pv.append(c3, " no Plano C"); }
     if (hasB) pv.append(")");
     pv.append(" para " + bn + ", uma única vez, quando o 1º next estiver livre (já ao Iniciar ou quando alguém entrar na hunt" + (form.waitGiveUp ? "; se já tiver next, quando ele desistir" : "") + ")" + (form.windowOn && !badWin ? " e a sua hunt for começar entre " + form.windowStart + " e " + form.windowEnd : "") + ".");
-    if (form.record) pv.append(" Grava vídeo da janela do TeamSpeak.");
+    if (form.record) pv.append(" Grava vídeo da janela do TeamSpeak (30 fps: 20 s antes + 10 s depois do envio).");
   } else {
     pv.append(!bn ? "Escolha acima quem recebe o comando." : badB ? "Arrume o Plano B ou escolha \"Sem Plano B\"." : badC ? "Arrume o Plano C ou escolha \"Sem Plano C\"." : "Escolha o respawn do Plano A.");
   }
@@ -777,20 +777,35 @@ function render() {
 
   // Gravação
   const rl = $("recLine"), rec = S.rec || {};
-  let recSig = "";
-  if (rec.on) recSig = "on|" + rec.file + "|" + fmtSecs(rec.seconds || 0) + "|" + rec.mb + "|" + (rec.note || "") + "|" + m.running;
-  else if (rec.last && m.record) recSig = "saved|" + rec.last;
+  let recText = "", recWarn = "", recSaved = false;
+  const secs = n => Math.max(0, Math.round(n || 0)) + " s";
+  if (rec.on && rec.phase === "saving") {
+    recText = "Salvando o vídeo…";
+  } else if (rec.on && rec.phase === "after" && (rec.kind === "sent" || rec.kind === "tested")) {
+    recText = "Gravando os 10 s depois " + (rec.kind === "sent" ? "do envio" : "do \"teria enviado\"") + " · faltam " + secs(Math.ceil(rec.afterLeft || 0)) +
+      " · o vídeo vai ter " + secs(rec.kept + (rec.afterLeft || 0)) + " (até 20 s antes + 10 s depois)";
+  } else if (rec.on && rec.phase === "after") {
+    recText = "Terminando o vídeo (os últimos 20 s) · faltam " + secs(Math.ceil(rec.afterLeft || 0));
+  } else if (rec.on) {
+    recText = "Gravando a 30 fps: guardo só os últimos 20 s · guardados agora: " + secs(Math.min(20, rec.kept)) +
+      (rec.fps ? " · " + Math.round(rec.fps) + " capturas/s" : "");
+  } else if (rec.last && m.record) {
+    recSaved = true;
+    recText = "Vídeo salvo: " + rec.last + (rec.lastInfo ? " · " + rec.lastInfo : "");
+  }
+  if (rec.on && rec.note) recWarn = rec.note;
+  if (rec.on && rec.others > 0) recWarn += (recWarn ? " " : "") + "O vídeo do monitoramento anterior ainda está terminando.";
+  const recSig = recText ? (recSaved ? "s|" : "r|") + recText + "|" + recWarn : "";
   if (rl.dataset.sig !== recSig) {
     rl.dataset.sig = recSig; rl.textContent = "";
     rl.classList.toggle("hidden", !recSig);
-    rl.classList.toggle("saved", !rec.on);
-    if (rec.on) {
+    rl.classList.toggle("saved", recSaved);
+    if (recSig && !recSaved) {
       const d = document.createElement("span"); d.className = "dot";
-      rl.append(d, "Gravando: " + rec.file + " · " + fmtSecs(rec.seconds || 0) + " · " + (rec.mb || 0) + " MB");
-      if (!m.running) rl.append(" (termina em instantes)");
-      if (rec.note) { const w = document.createElement("span"); w.className = "warn"; w.textContent = rec.note; rl.append(w); }
+      rl.append(d, recText);
+      if (recWarn) { const w = document.createElement("span"); w.className = "warn"; w.textContent = recWarn; rl.append(w); }
     } else if (recSig) {
-      rl.append("Vídeo salvo: " + rec.last);
+      rl.append(recText);
       const bv = document.createElement("button"); bv.type = "button"; bv.className = "link"; bv.textContent = "Abrir vídeo";
       bv.onclick = () => action(() => api("openvideo", {}));
       const b = document.createElement("button"); b.type = "button"; b.className = "link"; b.textContent = "Abrir pasta";

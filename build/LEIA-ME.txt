@@ -1,5 +1,37 @@
-NEXT TS 1.5.1 - COMO USAR
+NEXT TS 1.6.0 - COMO USAR
 ==========================
+
+NOVIDADES DA 1.6.0 (só a gravação de vídeo mudou)
+-------------------------------------------------
+- VÍDEO FLUIDO, A 30 QUADROS POR SEGUNDO: o app copia a janela do TS 30
+  vezes por segundo, num horário fixo. Tudo que se mexe aparece se
+  mexendo (inclusive o aviso que passa rolando na barra de baixo, que
+  antes ficava "parado" e pulava a cada 2 segundos).
+- O VÍDEO TEM SÓ 30 SEGUNDOS: os 20 segundos ANTES do "!next" e os 10
+  segundos DEPOIS. O "!next" aparece mais ou menos no segundo 20 do vídeo.
+  O "instante do envio" é o momento em que o comando sai do Next TS para
+  o TeamSpeak (no Modo teste, o momento do "teria enviado").
+- Enquanto espera, o app guarda SÓ OS ÚLTIMOS 20 SEGUNDOS (o resto vai
+  sendo jogado fora o tempo todo). Pode esperar horas: a memória e o
+  disco não enchem.
+- Se o "!next" sair antes de completar 20 segundos de gravação (ex.: o
+  respawn já estava bom quando você clicou em Iniciar), o vídeo fica com
+  o que tinha antes e mais os 10 segundos depois. O Histórico avisa que é
+  "parcial".
+- Se você clicar em Iniciar de novo durante os 10 segundos depois de um
+  envio, o vídeo do envio termina normalmente, e o novo monitoramento
+  grava em outro arquivo.
+- Parar / plano falhou / janela encerrada: o vídeo fica com os últimos 20
+  segundos e mais 2 segundos. Fechando o app: salva os últimos segundos
+  que tiver (no máximo 30 s).
+- Na Situação aparece o que está guardado de verdade, ex.: "Gravando a 30
+  fps: guardo só os últimos 20 s · guardados agora: 20 s · 30
+  capturas/s". Depois do envio: "Gravando os 10 s depois do envio ·
+  faltam 7 s". Se o PC estiver lento, o número de capturas por segundo
+  mostra isso (o vídeo continua com a duração certa, só repete imagens).
+- Tamanho: um vídeo de 30 s numa janela grande como a sua (2576x1408)
+  fica com uns 240 a 280 MB se a tela se mexer o tempo todo (o aviso
+  rolando conta), e bem menos se ela ficar parada (menos de 1 MB).
 
 NOVIDADES DA 1.5.1
 ------------------
@@ -106,10 +138,9 @@ NOVIDADES DA 1.4.0
   - Quem já estava na hunt quando você clicou em Iniciar continua não
     sendo pego, mesmo que o next dele desista.
 - Caixinha "Gravar vídeo da janela do TeamSpeak" (opcional):
-  - Grava só a janela do TS, 5 quadros por segundo, do Iniciar até 10
-    segundos depois de enviar (para pegar a resposta do bot). Também grava
-    no Modo teste. Se você clicar em Parar, ou o plano falhar, termina 2
-    segundos depois.
+  - (Desde a 1.6.0: 30 quadros por segundo e só 20 s antes + 10 s depois
+    do envio. Veja as novidades da 1.6.0 lá em cima.)
+  - Grava só a janela do TS. Também grava no Modo teste.
   - (Na 1.4.3 a faixa embaixo do vídeo foi tirada: o vídeo mostra só a
     janela do TS.)
   - Os vídeos ficam em  %LOCALAPPDATA%\NextTS\gravacoes  e NUNCA são
@@ -118,11 +149,9 @@ NOVIDADES DA 1.4.0
     no Modo teste termina em "_teste").
   - Formato .avi. Abre no VLC (recomendado, é grátis). Se o player do
     Windows não abrir, use o VLC.
-  - Tamanho: imagens iguais não são gravadas de novo, e o que se mexe
-    sozinho (como o aviso rolando na barra do TS) só é atualizado a cada
-    2 segundos. Costuma dar algumas centenas de MB por hora de espera
-    (depende do tamanho da janela do TS). Acima de 1 GB, ele continua num
-    arquivo "_parte2".
+  - Tamanho: imagens iguais não são gravadas de novo (o vídeo só repete a
+    anterior). Como o vídeo tem no máximo 30 s, o tamanho também tem um
+    limite (veja as novidades da 1.6.0).
   - PARA A MENSAGEM APARECER NO VÍDEO: antes de clicar em Iniciar, deixe
     aberto e selecionado no TeamSpeak o CHAT PRIVADO COM O BOT (x3tBot ou
     MissClick Bot Test). O "!next" sai do seu TS, com o seu nome, e aparece

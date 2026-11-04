@@ -1375,12 +1375,16 @@ def t76_hunt_do_comeco_pegaram_next_no_atraso_nao_falha(app):
     assert mock.sent[0][2] == "!next C1"
 
 
-# ---------------------------------------------------------------- 1.4: gravação
+# ---------------------------------------------------------------- 1.4 / 1.6: gravação (30 fps, 20 s antes + 10 s depois)
+
+FPS = 30
+FONT_H = 20  # altura das letras da janela de mentira (fonte_dados.go)
+
 
 def probe(path):
-    """Confere o vídeo com o ffprobe/ffmpeg: formato, tamanho, ritmo, duração e se todos os quadros abrem."""
+    """Confere o vídeo com o ffprobe/ffmpeg: formato, tamanho, ritmo (30 fps), duração e se todos os quadros abrem."""
     r = subprocess.run(["ffprobe", "-v", "error", "-count_frames", "-select_streams", "v:0",
-                        "-show_entries", "stream=codec_name,width,height,r_frame_rate,nb_read_frames:format=duration,format_name",
+                        "-show_entries", "stream=codec_name,width,height,r_frame_rate,nb_frames,nb_read_frames:format=duration,format_name",
                         "-of", "json", path], capture_output=True, text=True)
     assert r.returncode == 0 and not r.stderr.strip(), r.stderr
     info = json.loads(r.stdout)
@@ -1388,59 +1392,113 @@ def probe(path):
     assert d.returncode == 0 and not d.stderr.strip(), "quadros com erro: " + d.stderr[:300]
     st = info["streams"][0]
     assert info["format"]["format_name"] == "avi" and st["codec_name"] == "mjpeg", info
-    assert st["r_frame_rate"] == "5/1", st
-    # Cada imagem aparece no tempo certo (múltiplos de 0,2 s); as repetidas não ocupam espaço.
+    assert st["r_frame_rate"] == "30/1", st
+    # Cada imagem aparece no tempo certo (múltiplos de 1/30 s); as repetidas não ocupam espaço.
     f = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "frame=pts_time", "-of", "csv=p=0", path],
                        capture_output=True, text=True)
     pts = [float(x) for x in f.stdout.split()]
-    assert pts and pts[0] == 0 and all(abs(x * 5 - round(x * 5)) < 1e-6 for x in pts), pts[:20]
+    assert pts and pts[0] == 0 and all(abs(x * FPS - round(x * FPS)) < 1e-3 for x in pts), pts[:20]
     assert all(b > a for a, b in zip(pts, pts[1:])), "tempos fora de ordem"
+    dur = float(info["format"]["duration"])
+    assert abs(dur - int(st["nb_frames"]) / FPS) < 1e-3, (dur, st["nb_frames"])
     st["pts"] = pts
-    return float(info["format"]["duration"]), st
+    return dur, st
+
+
+def gray_frames(path, crop):
+    """Todos os quadros do vídeo (30 por segundo, os repetidos também), recortados e em cinza."""
+    w, h, x, y = crop
+    r = subprocess.run(["ffmpeg", "-v", "error", "-i", path, "-vf", f"crop={w}:{h}:{x}:{y},format=gray",
+                        "-r", str(FPS), "-f", "rawvideo", "-"], capture_output=True)
+    assert r.returncode == 0, r.stderr[:300]
+    n = w * h
+    return [r.stdout[i:i + n] for i in range(0, len(r.stdout) - n + 1, n)]
+
+
+def chat_line_at(path, line, width=1000):
+    """Segundo do vídeo em que aparece texto na linha `line` do chat da janela de mentira (None se não aparecer)."""
+    y = 400 + 10 + line * (FONT_H + 2)
+    for i, fr in enumerate(gray_frames(path, (480, FONT_H, 12, y))):
+        if sum(1 for b in fr if b < 120) > 40:
+            return i / FPS
+    return None
 
 
 def frame_png(path, at, out):
-    subprocess.run(["ffmpeg", "-v", "error", "-y", "-sseof", str(-at), "-i", path, "-frames:v", "1", out], check=True)
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", str(at), "-i", path, "-frames:v", "1", out], check=True)
+
+
+def rec_log(app, text):
+    return next((x for x in logs(app) if text in x), "")
+
+
+def real_fps(app):
+    m = re.search(r"(\d+,\d) capturas por segundo de verdade", rec_log(app, "Vídeo salvo"))
+    return float(m.group(1).replace(",", ".")) if m else 0
+
+
+def show_on_send(app, lines, extra, timeout):
+    """Quando o !next chega ao TS (simulado), ele aparece no chat da janela de mentira. Devolve o instante."""
+    assert wait(lambda: mock.sent, timeout), "não enviou"
+    app.set_tswin("\n".join(lines + extra))
+    return mock.sent[0][0]
 
 
 PRINTS = os.environ.get("NEXTTS_PRINTS", "")
 
 
 @scenario
-def t58_gravacao_do_envio(app):
+def t58_gravacao_do_envio_depois_de_esperar_muito(app):
+    # Espera bem mais que 20 s, com coisas se mexendo o tempo todo (relógio e aviso rolando).
+    # O vídeo tem que ter exatamente 30 s: 20 s antes do !next e 10 s depois, a 30 fps.
     connected(app)
     mock.set_desc(desc(*OUTRAS))
-    app.set_tswin("Chat privado com x3tBot Kalibra\n<18:00:00> x3tBot Kalibra: Bem-vindo!")
+    base = ["Chat privado com x3tBot Kalibra", "RELOGIO", "", "ROLANDO: Announcement - Start your own Community Server"]
+    app.set_tswin("\n".join(base))
     st, r = app.start("C1", rec=True)
     assert st == 200, r
     s = app.state()
-    assert s["monitor"]["record"] and s["rec"]["on"], s["rec"]
-    assert any("Gravando a janela do TeamSpeak" in x for x in logs(app)), logs(app)
-    time.sleep(1.5)
+    assert s["monitor"]["record"] and s["rec"]["on"] and s["rec"]["phase"] == "buffer", s["rec"]
+    assert any("Gravando a janela do TeamSpeak a 30 fps" in x for x in logs(app)), logs(app)
+    time.sleep(8)
+    r8 = app.state()["rec"]
+    assert 7 <= r8["kept"] <= 8.6 and r8["fps"] >= 15, r8
+    time.sleep(27)  # 35 s esperando: a memória guarda só os últimos 20 s
+    rb = app.state()["rec"]
+    assert 19.5 <= rb["kept"] <= 20.01, f"guardando {rb['kept']} s (devia ser 20 s)"
     entra()
-    assert wait(lambda: mock.sent, 5)
-    sent_at = time.time()
     hm = time.strftime("%H:%M:%S")
-    # O TS mostra a mensagem enviada e a resposta no chat privado.
-    app.set_tswin("Chat privado com x3tBot Kalibra\n<18:00:00> x3tBot Kalibra: Bem-vindo!\n"
-                  f"<{hm}> \"Real Calvon\": !next C1\n<{hm}> \"x3tBot Kalibra\": Você está no next de C1.")
+    t_send = show_on_send(app, base[:2], [f"<{hm}> \"Real Calvon\": !next C1", base[3]], 5)
     assert wait(lambda: app.mon()["phase"] == "sent", 3)
     time.sleep(1)
-    s = app.state()
-    assert s["rec"]["on"], "parou de gravar logo depois de enviar (devia continuar ~10 s)"
-    assert wait(lambda: not app.state()["rec"]["on"], 15), app.state()["rec"]
-    tail = time.time() - sent_at
-    assert 9.5 <= tail <= 13.5, f"continuou gravando {tail:.1f}s depois de enviar"
-    assert wait(lambda: any("Gravação salva" in x for x in logs(app)), 3), logs(app)
+    ra = app.state()["rec"]
+    assert ra["on"] and ra["phase"] == "after" and ra["kind"] == "sent" and 8 <= ra["afterLeft"] <= 9.5, ra
+    assert wait(lambda: not app.state()["rec"]["on"], 16), app.state()["rec"]
+    tail = time.time() - t_send
+    assert 9.9 <= tail <= 14, f"continuou gravando {tail:.1f}s depois de enviar"
+    assert wait(lambda: rec_log(app, "Vídeo salvo"), 3), logs(app)
     vids = app.videos()
     assert len(vids) == 1 and re.search(r"\d{4}-\d\d-\d\d_\d\d-\d\d-\d\d_C1\.avi$", vids[0]), vids
     dur, st = probe(vids[0])
-    assert 12 <= dur <= 17, f"duração {dur}"
+    assert abs(dur - 30) <= 1 / FPS + 1e-6 and abs(int(st["nb_frames"]) - 900) <= 1, (dur, st["nb_frames"])
     assert st["width"] == 1000 and st["height"] == 640, st  # só a janela do TS (sem faixa nem bordas)
-    assert os.path.getsize(vids[0]) < 3_000_000, os.path.getsize(vids[0])  # quadros iguais não ocupam espaço
-    assert app.state()["rec"]["last"] == os.path.basename(vids[0])
+    pts = st["pts"]
+    fps = real_fps(app)
+    gaps = [b - a for a, b in zip(pts, pts[1:])]
+    print(f"    vídeo: {dur:.3f} s, {st['nb_frames']} quadros, {len(pts)} imagens diferentes, {fps} capturas/s de verdade, "
+          f"maior intervalo sem imagem nova {max(gaps):.3f} s, {os.path.getsize(vids[0]) / 1e6:.1f} MB")
+    assert len(pts) >= 0.6 * 900 and max(gaps) <= 0.3, "o vídeo não está fluido"
+    # O !next aparece no chat aos 20 s do vídeo (o envio é o instante 20 s).
+    at = chat_line_at(vids[0], 2)
+    print(f"    \"!next C1\" aparece no vídeo aos {at:.3f} s")
+    assert at is not None and 19.95 <= at <= 20.4, f"o !next aparece aos {at} s (devia ser ~20 s)"
+    assert "20,0 s antes e 10,0 s depois do envio" in rec_log(app, "Vídeo salvo"), rec_log(app, "Vídeo salvo")
+    s = app.state()["rec"]
+    assert s["last"] == os.path.basename(vids[0]) and s["lastInfo"].startswith("30,0 s"), s
+    assert not os.path.exists(os.path.join(app.data, "gravacoes", ".temp")), "sobrou temporário"
     if PRINTS:
-        frame_png(vids[0], 3, os.path.join(PRINTS, "video-depois-do-envio.png"))
+        frame_png(vids[0], 20.5, os.path.join(PRINTS, "video-depois-do-envio.png"))
+        frame_png(vids[0], 0, os.path.join(PRINTS, "video-primeiro-quadro.png"))
 
 
 @scenario
@@ -1451,20 +1509,22 @@ def t59_gravacao_ts_minimizado_e_volta(app):
     app.start("C1", rec=True)
     assert wait(lambda: any("minimizado" in x for x in logs(app)), 3), logs(app)
     assert "minimizado" in app.state()["rec"]["note"], app.state()["rec"]
-    if PRINTS:
-        time.sleep(0.6)
+    time.sleep(1)
     app.set_tswin("Chat privado com x3tBot Kalibra")
     assert wait(lambda: any("voltei a ver a janela" in x for x in logs(app)), 3), logs(app)
     assert app.state()["rec"]["note"] == ""
-    time.sleep(0.5)
+    time.sleep(1)
     app.api("stop", {})
-    assert wait(lambda: not app.state()["rec"]["on"], 5), "não terminou a gravação depois do Parar"
+    assert wait(lambda: not app.state()["rec"]["on"], 6), "não terminou a gravação depois do Parar"
     vids = app.videos()
     dur, st = probe(vids[0])
-    assert dur >= 2, dur
-    assert st["width"] == 1280, st  # começou sem janela: tamanho padrão
+    assert 3.5 <= dur <= 5.5, dur  # do Iniciar ao Parar (menos de 20 s) + 2 s
+    # O TS apareceu depois: o vídeo tem o tamanho da janela, e o começo (minimizado) mostra o aviso.
+    assert st["width"] == 1000 and st["height"] == 640, st
+    first = gray_frames(vids[0], (200, 100, 400, 50))[0]
+    assert sum(first) / len(first) < 80, "o começo devia mostrar a tela do aviso (escura)"
     if PRINTS:
-        frame_png(vids[0], dur - 0.3, os.path.join(PRINTS, "video-ts-minimizado.png"))
+        frame_png(vids[0], 0.3, os.path.join(PRINTS, "video-ts-minimizado.png"))
 
 
 @scenario
@@ -1488,12 +1548,13 @@ def t61_fechar_app_gravando_salva_o_video(app):
     st, _ = app.api("quit", {})
     assert st == 200
     assert wait(lambda: app.p.poll() is not None, 8), "app não fechou"
-    vids = app.videos()
+    vids = [v for v in app.videos() if v.endswith(".avi")]
     assert len(vids) == 1
     dur, _ = probe(vids[0])
-    assert dur >= 2, dur
+    assert 2 <= dur <= 3, dur
     with open(vids[0], "rb") as f:
         assert b"idx1" in f.read(), "vídeo sem índice (não terminou de salvar)"
+    assert not os.path.exists(os.path.join(app.data, "gravacoes", ".temp")), "sobrou temporário"
 
 
 @scenario
@@ -1501,14 +1562,19 @@ def t62_opcoes_lembradas_e_teste_grava(app):
     connected(app)
     mock.set_desc(desc(*OUTRAS))
     app.start("C1", test=True, wait=True, rec=True)
-    time.sleep(1)
+    time.sleep(3)
     entra()
     assert wait(lambda: app.mon()["phase"] == "tested", 5)
-    assert app.state()["rec"]["on"], "modo teste também deve gravar até 10 s depois"
+    t_test = time.time()
+    r = app.state()["rec"]
+    assert r["on"] and r["kind"] == "tested", "modo teste também deve gravar até 10 s depois"
     assert wait(lambda: not app.state()["rec"]["on"], 14)
     vids = app.videos()
     assert len(vids) == 1 and vids[0].endswith("_C1_teste.avi"), vids
-    probe(vids[0])
+    dur, _ = probe(vids[0])
+    assert 13 <= dur <= 15, dur  # ~3-4 s antes (parcial: tinha começado há pouco) + 10 s depois
+    info = rec_log(app, "Vídeo salvo")
+    assert "parcial" in info and "teria enviado" in info, info
     app.close()
     app2 = App(app.data)
     try:
@@ -1523,6 +1589,10 @@ def t62_opcoes_lembradas_e_teste_grava(app):
 def t63_nova_gravacao_nao_apaga_a_anterior(app):
     connected(app)
     mock.set_desc(desc(*OUTRAS))
+    os.makedirs(os.path.join(app.data, "gravacoes"), exist_ok=True)
+    old = os.path.join(app.data, "gravacoes", "2026-10-13_20-00-12_D13_teste.avi")
+    with open(old, "wb") as f:
+        f.write(b"video antigo")
     app.start("C1", rec=True)
     time.sleep(1.2)
     app.api("stop", {})
@@ -1532,34 +1602,40 @@ def t63_nova_gravacao_nao_apaga_a_anterior(app):
     assert wait(lambda: not app.state()["rec"]["on"], 6)
     time.sleep(0.5)
     vids = app.videos()
-    assert len(vids) == 2, vids
+    assert len(vids) == 3, vids
     for v in vids:
-        probe(v)
+        if v != old:
+            probe(v)
+    with open(old, "rb") as f:
+        assert f.read() == b"video antigo", "mexeu no vídeo antigo"
 
 
 @scenario
-def t77_aviso_rolando_nao_enche_o_video(app):
-    # O TS de verdade tem um aviso que passa rolando na barra de baixo. Ele não pode fazer
-    # gravar imagem nova a cada 0,2 s; uma mensagem nova no chat tem que entrar na hora.
+def t77_aviso_rolando_fica_fluido(app):
+    # O aviso que passa rolando na barra do TS não fica mais "congelado" por 2 s: tudo a 30 fps.
+    # E uma mensagem nova no chat entra na hora.
     connected(app)
     mock.set_desc(desc(*OUTRAS))
-    app.set_tswin("Chat privado com x3tBot Kalibra\nROLANDO: Announcement - Start your own Community Server")
+    base = ["Chat privado com x3tBot Kalibra", "", "ROLANDO: Announcement - Start your own Community Server"]
+    app.set_tswin("\n".join(base))
     t0 = time.time()
     app.start("C1", rec=True)
-    time.sleep(6)
+    time.sleep(5)
     chat_at = time.time() - t0
-    app.set_tswin("Chat privado com x3tBot Kalibra\n<20:15:03> \"Real Calvon\": !next C1\n"
-                  "ROLANDO: Announcement - Start your own Community Server")
+    app.set_tswin("\n".join([base[0], "<20:15:03> \"Real Calvon\": !next C1", base[2]]))
     time.sleep(2)
     app.api("stop", {})
     assert wait(lambda: not app.state()["rec"]["on"], 6)
-    dur, st = probe(app.videos()[0])
+    v = app.videos()[0]
+    dur, st = probe(v)
     pts = st["pts"]
-    print(f"    imagens gravadas: {len(pts)} em {dur:.1f} s; mensagem do chat aos {chat_at:.1f} s; tempos: {pts}")
-    assert len(pts) <= dur * 5 * 0.4, f"gravou imagem nova demais por causa do aviso rolando: {len(pts)} em {dur} s"
-    assert any(chat_at - 0.3 <= p <= chat_at + 0.8 for p in pts), f"a mensagem do chat não entrou na hora ({chat_at:.1f} s): {pts}"
     gaps = [b - a for a, b in zip(pts, pts[1:])]
-    assert max(gaps) <= 2.3, f"o aviso rolando ficou parado mais de 2 s no vídeo: {gaps}"
+    at = chat_line_at(v, 1)
+    print(f"    {len(pts)} imagens diferentes em {dur:.1f} s ({len(pts) / dur:.1f}/s); maior intervalo {max(gaps):.3f} s; "
+          f"chat aos {chat_at:.2f} s, no vídeo aos {at}")
+    assert len(pts) >= dur * FPS * 0.6, f"o aviso rolando não está fluido: {len(pts)} imagens em {dur} s"
+    assert max(gaps) <= 0.3, f"o aviso rolando ficou parado no vídeo: {max(gaps)} s"
+    assert at is not None and abs(at - chat_at) <= 0.5, f"a mensagem do chat não entrou na hora ({chat_at:.2f} s, vídeo {at})"
 
 
 # ---------------------------------------------------------------- 1.5.0: avisos, resposta do bot, 3 planos, planos salvos
@@ -1719,6 +1795,109 @@ def t85_abrir_ultimo_video(app):
     assert app.state()["rec"]["hasLast"]
     st, r = app.api("openvideo", {})
     assert st == 200, r
+
+
+# ---------------------------------------------------------------- 1.6.0: recorte de 30 s
+
+@scenario
+def t86_novo_monitoramento_nos_10s_depois(app):
+    # Envia e logo começa outro monitoramento (com gravação) durante os 10 s depois:
+    # o vídeo do envio continua até o fim, e o novo é outro arquivo.
+    connected(app)
+    mock.set_desc(desc(*OUTRAS))
+    base = ["Chat privado com x3tBot Kalibra", "RELOGIO", ""]
+    app.set_tswin("\n".join(base))
+    app.start("C1", rec=True)
+    time.sleep(4)
+    entra()
+    t_send = show_on_send(app, base[:2], ["<20:00:00> \"Real Calvon\": !next C1"], 5)
+    assert wait(lambda: app.mon()["phase"] == "sent", 3)
+    first = app.state()["rec"]["file"]
+    mock.set_desc(desc(*OUTRAS))
+    st, r = app.start("A1", rec=True)  # reinicia durante os 10 s depois do envio
+    assert st == 200, r
+    s = app.state()["rec"]
+    assert s["phase"] == "buffer" and s["others"] == 1 and s["file"] != first, s
+    time.sleep(3)
+    app.api("stop", {})
+    assert wait(lambda: not app.state()["rec"]["on"] and app.state()["rec"]["others"] == 0, 15), app.state()["rec"]
+    vids = app.videos()
+    assert len(vids) == 2, vids
+    v1 = [v for v in vids if v.endswith(first)][0]
+    v2 = [v for v in vids if v != v1][0]
+    d1, _ = probe(v1)
+    d2, _ = probe(v2)
+    at = chat_line_at(v1, 2)
+    print(f"    vídeo do envio: {d1:.2f} s (o !next aos {at} s); vídeo novo: {d2:.2f} s")
+    # ~4-6 s antes (4 s + o atraso de 1 a 2 s) + os 10 s depois inteiros (o !next aparece ~0,1 s depois do envio).
+    assert at is not None and 9.5 <= d1 - at <= 10.05, f"o vídeo do envio foi cortado: {d1} s, !next aos {at} s"
+    assert 14 <= d1 <= 17, d1
+    assert 4.5 <= d2 <= 6, d2  # ~3 s + 2 s
+    assert "_A1" in v2 and "_C1" in v1, vids
+    assert not os.path.exists(os.path.join(app.data, "gravacoes", ".temp")), "sobrou temporário"
+
+
+@scenario
+def t87_envio_antes_de_20s_parcial(app):
+    connected(app)
+    mock.set_desc(desc(*OUTRAS))
+    app.start("C1", rec=True)
+    time.sleep(5)
+    entra()
+    assert wait(lambda: app.mon()["phase"] == "sent", 5)
+    assert wait(lambda: not app.state()["rec"]["on"], 16)
+    dur, _ = probe(app.videos()[0])
+    assert 15 <= dur <= 17, dur  # ~5-6 s antes + 10 s depois
+    info = rec_log(app, "Vídeo salvo")
+    assert "parcial" in info and "depois do envio" in info, info
+    assert "parcial" in app.state()["rec"]["lastInfo"], app.state()["rec"]
+
+
+@scenario
+def t88_falha_de_captura_no_meio(app):
+    connected(app)
+    mock.set_desc(desc(*OUTRAS))
+    app.start("C1", rec=True)
+    time.sleep(1.5)
+    app.set_tswin("falha")
+    assert wait(lambda: any("Não consegui copiar" in x or "não consegui copiar" in x for x in logs(app)), 3), logs(app)
+    assert "copiar" in app.state()["rec"]["note"], app.state()["rec"]
+    time.sleep(1.5)
+    app.set_tswin("Chat privado com x3tBot Kalibra")
+    assert wait(lambda: any("voltei a ver a janela" in x for x in logs(app)), 3), logs(app)
+    time.sleep(1.5)
+    entra()
+    assert wait(lambda: app.mon()["phase"] == "sent", 5), "a falha da gravação atrapalhou o envio"
+    assert wait(lambda: not app.state()["rec"]["on"], 16)
+    v = app.videos()[0]
+    dur, st = probe(v)
+    assert 14 <= dur <= 18.5 and st["width"] == 1000, (dur, st)  # ~4,5-8 s antes (com o atraso de 1 a 2 s) + 10 s
+    # No meio, a tela do aviso (escura) no lugar da janela.
+    mid = gray_frames(v, (200, 100, 400, 50))
+    dark = [i / FPS for i, fr in enumerate(mid) if sum(fr) / len(fr) < 80]
+    assert dark and 1.2 <= dark[0] <= 2.2 and 2.6 <= dark[-1] <= 3.6, (dark[:3], dark[-3:])
+
+
+@scenario
+def t89_imagem_parada_na_borda_do_corte(app):
+    # Nada muda na janela por muito tempo: o 1º quadro do vídeo é a imagem completa
+    # (capturada bem antes dos 20 s) e o vídeo fica pequeno.
+    connected(app)
+    mock.set_desc(desc(*OUTRAS))
+    app.set_tswin("Chat privado com x3tBot Kalibra\n<18:00:00> x3tBot Kalibra: Bem-vindo!")
+    app.start("C1", rec=True)
+    time.sleep(23)
+    entra()
+    assert wait(lambda: app.mon()["phase"] == "sent", 5)
+    assert wait(lambda: not app.state()["rec"]["on"], 16)
+    v = app.videos()[0]
+    dur, st = probe(v)
+    assert abs(dur - 30) <= 1 / FPS + 1e-6, dur
+    first = gray_frames(v, (480, FONT_H, 12, 410 + FONT_H + 2))[0]
+    assert sum(1 for b in first if b < 120) > 40, "o 1º quadro não mostra a janela completa"
+    size = os.path.getsize(v)
+    print(f"    {len(st['pts'])} imagens diferentes; {size / 1e3:.0f} KB")
+    assert len(st["pts"]) <= 3 and size < 400_000, (len(st["pts"]), size)
 
 
 print()

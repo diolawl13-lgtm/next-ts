@@ -13,10 +13,15 @@ package main
 //                             de teste), como no PC de verdade.
 
 import (
+	"bytes"
 	"image"
 	"image/color"
+	"image/draw"
+	"image/jpeg"
+	"image/png"
 	"os"
 	"runtime"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -154,6 +159,34 @@ func testWindows(t *testing.T, specs ...winSpec) ([]uintptr, chan func()) {
 	return hs, cmds
 }
 
+// toRGBA copia uma imagem BGRA (como vem da captura) para RGBA.
+func toRGBA(pix []byte, w, h int) *image.RGBA {
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	for i := 0; i < w*h*4; i += 4 {
+		img.Pix[i], img.Pix[i+1], img.Pix[i+2], img.Pix[i+3] = pix[i+2], pix[i+1], pix[i], 255
+	}
+	return img
+}
+
+// captureWith copia o conteúdo da janela por um jeito só (para testar cada um).
+func captureWith(m int, h uintptr, c rect) (*image.RGBA, string) {
+	tsWinMu.Lock()
+	defer tsWinMu.Unlock()
+	if why := grab(m, h, c, 0); why != "" {
+		return nil, why
+	}
+	return toRGBA(capDIB[0].pix(), capDIB[0].w, capDIB[0].h), ""
+}
+
+// captureImg: captureTS com a imagem em RGBA.
+func captureImg() (*image.RGBA, capState) {
+	pix, w, h, st := captureTS(0)
+	if st != capOK {
+		return nil, st
+	}
+	return toRGBA(pix, w, h), st
+}
+
 func resetCapture() {
 	tsWinMu.Lock()
 	tsWin, capBest, capNote = 0, -1, ""
@@ -191,7 +224,7 @@ func TestCaptureJanelaDoTS(t *testing.T) {
 		t.Skip("defina NEXTTS_WINE_TEST=1 (e chame o executável de ts3client_...)")
 	}
 	resetCapture()
-	if _, st := captureTS(); st != capNotFound {
+	if _, st := captureImg(); st != capNotFound {
 		t.Fatalf("sem janela aberta: esperava 'não encontrada', veio %v", st)
 	}
 	// A principal (640x400) e, mais longe, duas que NÃO são a principal:
@@ -218,7 +251,7 @@ func TestCaptureJanelaDoTS(t *testing.T) {
 		screen, _, _ := procGetDC.Call(0)
 		d, _ := newDIB(screen, int(r.Right-r.Left), int(r.Bottom-r.Top))
 		procBitBlt.Call(d.mem, 0, 0, uintptr(r.Right-r.Left), uintptr(r.Bottom-r.Top), screen, uintptr(r.Left), uintptr(r.Top), srcCopy)
-		whole := d.crop(0, 0, int(r.Right-r.Left), int(r.Bottom-r.Top))
+		whole := toRGBA(d.pix(), d.w, d.h)
 		d.free()
 		procReleaseDC.Call(0, screen)
 		green := 0
@@ -234,7 +267,7 @@ func TestCaptureJanelaDoTS(t *testing.T) {
 	} else {
 		t.Logf("sem barra de título aqui (%d pontos): o teste da tarja fica para a área de trabalho virtual", bar)
 	}
-	img, st := captureTS()
+	img, st := captureImg()
 	if st != capOK || img == nil || img.Bounds().Dx() != cw || img.Bounds().Dy() != ch {
 		t.Fatalf("captura falhou: %v %v (esperava %dx%d)", st, img, cw, ch)
 	}
@@ -251,26 +284,63 @@ func TestCaptureJanelaDoTS(t *testing.T) {
 	// Sem os dois primeiros jeitos, os outros dão conta.
 	resetCapture()
 	capSkip[capPrintFull], capSkip[capPrint] = true, true
-	if img, st := captureTS(); st != capOK {
+	if img, st := captureImg(); st != capOK {
 		t.Fatalf("sem PrintWindow: %v", st)
 	} else {
 		redBlue(t, "sem PrintWindow", img)
 	}
 	resetCapture()
 
-	// Gravação de ponta a ponta com a captura de verdade.
+	// Velocidade da captura de verdade (a 30 quadros por segundo, cada uma tem ~33 ms).
+	t0 := time.Now()
+	for i := 0; i < 30; i++ {
+		if _, _, _, st := captureTS(i % 2); st != capOK {
+			t.Fatalf("captura %d: %v", i, st)
+		}
+	}
+	t.Logf("captura de %dx%d: %.1f ms cada (jeito: %s)", cw, ch, float64(time.Since(t0).Microseconds())/30000, capMethodName[capBest])
+	captureRelease()
+	if capDIB[0] != nil || capDIB[1] != nil {
+		t.Fatal("captureRelease não soltou as imagens do Windows")
+	}
+
+	// Gravação de ponta a ponta com a captura de verdade ("20 s" = 1 s, "10 s" = 0,5 s).
+	b, a := RecBefore, RecAfter
+	RecBefore, RecAfter = time.Second, 500*time.Millisecond
+	defer func() { RecBefore, RecAfter = b, a }()
 	dir := t.TempDir()
 	rec := NewRecorder(dir, func(kind, text string) { t.Log(kind, text) })
 	file, err := rec.Begin("C1", false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(1200 * time.Millisecond)
-	rec.End(0)
+	time.Sleep(1500 * time.Millisecond)
+	t.Logf("gravando: %+v", rec.View())
+	rec.Mark(time.Now(), "sent")
+	time.Sleep(800 * time.Millisecond)
 	rec.Close()
 	in := readAVI(t, file)
-	if in.totalFrames < 4 || int(in.w) != cw || int(in.h) != ch { // só o conteúdo da janela do TS
+	if d := int(in.totalFrames) - 45; d < -1 || d > 1 || int(in.w) != cw || int(in.h) != ch { // só o conteúdo da janela do TS
 		t.Fatalf("vídeo: %d quadros, %dx%d", in.totalFrames, in.w, in.h)
+	}
+	first, err := jpeg.Decode(bytes.NewReader(in.chunks[0]))
+	if err != nil {
+		t.Fatalf("o primeiro quadro não abre: %v", err)
+	}
+	// No vídeo (JPEG) a divisa vermelho/azul fica borrada: confere longe dela, até as bordas.
+	rgba := image.NewRGBA(first.Bounds())
+	draw.Draw(rgba, rgba.Bounds(), first, image.Point{}, draw.Src)
+	for _, x := range []int{0, cw / 2, cw - 1} {
+		for _, y := range []int{0, ch/2 - 10} {
+			if c := rgba.RGBAAt(x, y); c.R < 200 || c.B > 60 {
+				t.Fatalf("vídeo: (%d,%d) devia ser vermelho: %v", x, y, c)
+			}
+		}
+		for _, y := range []int{ch/2 + 10, ch - 1} {
+			if c := rgba.RGBAAt(x, y); c.B < 200 || c.R > 60 {
+				t.Fatalf("vídeo: (%d,%d) devia ser azul: %v", x, y, c)
+			}
+		}
 	}
 
 	// Minimizada (precisa de um gerenciador de janelas).
@@ -280,7 +350,7 @@ func TestCaptureJanelaDoTS(t *testing.T) {
 		<-done
 		time.Sleep(500 * time.Millisecond)
 		resetCapture()
-		if _, st := captureTS(); st != capMinimized {
+		if _, st := captureImg(); st != capMinimized {
 			t.Fatalf("minimizada: esperava 'minimizado', veio %v", st)
 		}
 	}
@@ -292,10 +362,115 @@ func TestCaptureOutroPrograma(t *testing.T) {
 		t.Skip("defina NEXTTS_WINE_TEST=outro com o ts3client_win64.exe de teste aberto")
 	}
 	resetCapture()
-	img, st := captureTS()
+	img, st := captureImg()
 	if st != capOK || img == nil {
 		t.Fatalf("captura falhou: %v (%s)", st, capNote)
 	}
 	t.Logf("jeito usado: %s", capMethodName[capBest])
+	if out := os.Getenv("NEXTTS_PNG"); out != "" { // modo grande: guarda duas capturas para olhar
+		save := func(name string, im *image.RGBA) {
+			f, _ := os.Create(out + name)
+			png.Encode(f, im)
+			f.Close()
+		}
+		save("_1.png", img)
+		time.Sleep(700 * time.Millisecond)
+		img2, _ := captureImg()
+		save("_2.png", img2)
+		diff := 0
+		for i := range img.Pix {
+			if img.Pix[i] != img2.Pix[i] {
+				diff++
+			}
+		}
+		t.Logf("pontos diferentes entre duas capturas com 0,7 s: %d", diff/4)
+		return
+	}
 	redBlue(t, "outro programa", img)
+	t0 := time.Now()
+	for i := 0; i < 60; i++ {
+		if _, _, _, st := captureTS(i % 2); st != capOK {
+			t.Fatalf("captura %d: %v", i, st)
+		}
+	}
+	t.Logf("captura de %dx%d de outro programa: %.1f ms cada", img.Bounds().Dx(), img.Bounds().Dy(), float64(time.Since(t0).Microseconds())/60000)
+	captureRelease()
+}
+
+// Medição com uma janela grande (2576x1408, como a do TS do usuário) de outro programa,
+// com um print do TS de verdade de fundo e um aviso rolando: grava com os tempos de
+// verdade (20 s antes + 10 s depois) e mede capturas por segundo, memória e tamanho.
+func TestGravacaoJanelaGrande(t *testing.T) {
+	if os.Getenv("NEXTTS_WINE_TEST") != "grande" {
+		t.Skip("defina NEXTTS_WINE_TEST=grande com o ts3client_win64.exe de teste aberto em modo grande")
+	}
+	resetCapture()
+	dir := t.TempDir()
+	var logs []string
+	var lmu sync.Mutex
+	rec := NewRecorder(dir, func(kind, text string) { lmu.Lock(); logs = append(logs, text); lmu.Unlock() })
+	var peakHeap, peakSys uint64
+	stop := make(chan bool)
+	go func() {
+		var ms runtime.MemStats
+		for {
+			select {
+			case <-stop:
+				return
+			case <-time.After(250 * time.Millisecond):
+			}
+			runtime.ReadMemStats(&ms)
+			peakHeap, peakSys = max(peakHeap, ms.HeapInuse), max(peakSys, ms.Sys)
+		}
+	}()
+	file, err := rec.Begin("C1", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wait := 25 * time.Second
+	if v := os.Getenv("NEXTTS_ESPERA"); v != "" {
+		wait, _ = time.ParseDuration(v)
+	}
+	time.Sleep(wait)
+	v := rec.View()
+	t.Logf("antes do envio: %+v", v)
+	T := time.Now()
+	rec.Mark(T, "sent")
+	t.Logf("T (envio) = %s", T.Format("15:04:05.000"))
+	time.Sleep(5 * time.Second)
+	t.Logf("5 s depois do envio: %+v", rec.View())
+	time.Sleep(5500 * time.Millisecond)
+	rec.Close()
+	close(stop)
+	in := readAVI(t, file)
+	images := 0
+	for _, c := range in.chunks {
+		if len(c) > 0 {
+			images++
+		}
+	}
+	fi, _ := os.Stat(file)
+	p := rec.lastPipe
+	t.Logf("vídeo %dx%d: %d quadros (%.2f s), %d imagens diferentes, %.1f MB", in.w, in.h, in.totalFrames, float64(in.totalFrames)/30, images, float64(fi.Size())/(1<<20))
+	t.Logf("câmera: %d capturas em %v (%.1f/s), captura média %.1f ms, comparação+compressão média %.1f ms, %d horários perdidos",
+		p.captures, time.Since(T)+wait, float64(p.captures)/(time.Since(T)+wait).Seconds(),
+		float64(p.capTime.Microseconds())/float64(p.captures)/1000, float64(p.procTime.Microseconds())/float64(p.captures)/1000, p.skipped)
+	ram, disk := rec.store.peaks()
+	t.Logf("memória: faixas comprimidas no máx. %s, temporário %s; heap do Go no máx. %.0f MB, memória do processo (Go) no máx. %.0f MB",
+		fmtMB(ram), fmtMB(disk), float64(peakHeap)/(1<<20), float64(peakSys)/(1<<20))
+	lmu.Lock()
+	for _, l := range logs {
+		t.Log(l)
+	}
+	lmu.Unlock()
+	if d := int(in.totalFrames) - 900; d < -1 || d > 1 {
+		t.Fatalf("quadros: %d, esperava 900 (±1)", in.totalFrames)
+	}
+	if len(in.chunks[0]) == 0 {
+		t.Fatal("primeiro quadro vazio")
+	}
+	if os.Getenv("NEXTTS_GUARDAR") != "" {
+		data, _ := os.ReadFile(file)
+		os.WriteFile(os.Getenv("NEXTTS_GUARDAR"), data, 0o644)
+	}
 }

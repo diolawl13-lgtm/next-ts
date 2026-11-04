@@ -1,6 +1,6 @@
 # Next TS — resumo completo do projeto (para continuar no Claude Code)
 
-> Junto com este resumo vai o arquivo **Next-TS-1.5.1.zip** (última versão; a última confirmada no TS real é a 1.4.3). Dentro dele, a pasta `Next-TS/codigo-fonte` tem todo o código, os testes e as ferramentas de build.
+> Junto com este resumo vai o arquivo **Next-TS-1.6.0.zip** (última versão; a última confirmada no TS real é a 1.4.3). Dentro dele, a pasta `Next-TS/codigo-fonte` tem todo o código, os testes e as ferramentas de build.
 
 ---
 
@@ -31,7 +31,8 @@ O **Next TS** fica de olho na lista de claimeds que o x3tBot publica na **descri
 - A **1.4.2 (13/10/2026)** trouxe a regra nova "pega quem já está caçando" e a gravação mais robusta. **Funcionou perfeitamente no TS real** (confirmado por mim em 13/10, com vídeo: `2026-10-13_20-00-12_D13_teste.avi`, janela do TS 2576x1408).
 - A **1.4.3 (13/10/2026)**: o vídeo mostra **só a janela do TS** (sem a faixa preta de baixo e sem bordas) e fica bem menor. **VERSÃO FUNCIONAL: confirmada por mim no TS real em 14/10/2026.** É o commit "Marca a 1.4.3 como versão funcional" (c5dbe5d) no ramo `claude/inspiring-edison-cu3pka` (a etiqueta `v1.4.3-funcional` não subiu para o GitHub). Se algo der errado no futuro, é para esta versão que se volta.
 - A **1.5.0 (14/10/2026)**: avisos de lista parada e de formato, conferência da resposta do bot, Plano C, planos salvos e "Abrir último vídeo".
-- A versão atual é a **1.5.1 (14/10/2026)**: tira a tarja preta do vídeo (grava só o conteúdo da janela do TS, sem a barra de título). Testada no TS simulado e no Wine; ainda não testei no TS real.
+- A **1.5.1 (14/10/2026)**: tira a tarja preta do vídeo (grava só o conteúdo da janela do TS, sem a barra de título).
+- A versão atual é a **1.6.0 (04/11/2026)**: gravação a **30 fps** e vídeo de **30 s: 20 s antes do envio do "!next" + 10 s depois** (memória circular dos últimos 20 s). Testada no TS simulado e no Wine (simulação do Windows); ainda não testei no TS real.
 
 ---
 
@@ -77,7 +78,7 @@ R9 - [ Aceitar 00:03 ] Upper Roshamuul (Tier 1): Next: Alxoff — aguardando ace
 
 ---
 
-## 4. Regras atuais do app (versão 1.5.1, combinadas comigo)
+## 4. Regras atuais do app (versão 1.6.0, combinadas comigo)
 
 1. **Só 1º next.** Eu não posso mais pegar 2º next. A opção de 2º next e a opção "pegar logo se já estiver disponível" foram removidas.
 2. **Quem já está caçando ao Iniciar (mudou na 1.4.2, "sempre pegar"):** se já tiver alguém caçando e **ninguém no next**, e a conta der **dentro da janela** (ou a janela estiver desligada), o app pega **na hora** (atraso de 1 a 2 s + conferência). Exemplo do dia 13/10: 19:26 + `[ 00:35 ]` = 20:01, dentro de 20:00–22:30.
@@ -118,13 +119,18 @@ R9 - [ Aceitar 00:03 ] Upper Roshamuul (Tier 1): Next: Alxoff — aguardando ace
     - Respawn ficou livre na espera: não é falha. Se entrar **outra** pessoa, é hunt nova (regras normais).
     - Hunt que já existia ao Iniciar, com next: espera esse next desistir e pega (regra 2). Se o next entrar na hunt, não falha: vira entrada normal.
 14. **Gravação em vídeo** (opcional, caixinha):
-    - Grava **só o conteúdo da janela do TeamSpeak** (do menu "Conexões" para baixo, até as bordas; **sem a barra de título** desde a 1.5.1, porque ela saía com uma tarja preta), **sem faixa nem bordas** (pedido em 13/10: "apenas a janela do TS e só"), **5 quadros/s**, do Iniciar até **10 s depois de enviar** (ou do "teria enviado" no Modo teste). Parar/falha/janela encerrada: termina 2 s depois.
+    - Grava **só o conteúdo da janela do TeamSpeak** (do menu "Conexões" para baixo, até as bordas; **sem a barra de título** desde a 1.5.1, porque ela saía com uma tarja preta), **sem faixa nem bordas** (pedido em 13/10: "apenas a janela do TS e só").
+    - **Desde a 1.6.0 (pedido de 04/11): 30 quadros/s de verdade e o vídeo tem só 30 s: os 20 s antes do envio do "!next" e os 10 s depois.** O instante do envio (T) é quando o comando sai pelo ClientQuery (no Modo teste, o "teria enviado"); não é a detecção, nem o atraso de 1 a 2 s, nem a resposta do bot. O "!next" fica por volta do segundo 20 do vídeo.
+    - Enquanto espera, guarda **só os últimos 20 s** (memória circular, com as imagens já comprimidas); o resto é jogado fora o tempo todo. Pode esperar horas.
+    - Enviou antes de ter 20 s guardados: salva o que tem + 10 s depois e avisa "parcial". Iniciar de novo durante os 10 s depois: o vídeo do envio termina normalmente; o novo vai para outro arquivo.
+    - Parar/falha/janela encerrada: últimos 20 s + 2 s. Fechar o app: salva o que tiver (no máximo 30 s).
+    - Cada imagem fica no instante em que foi capturada (relógio monotônico): se o PC atrasar, o vídeo continua na velocidade real (repete a imagem anterior). A janelinha mostra os segundos guardados de verdade e as capturas por segundo.
     - Até a 1.4.2 havia uma faixa preta embaixo com relógio, "REC" e acontecimentos: **foi tirada** na 1.4.3. O horário e o "ENVIADO" ficam no Histórico e no `registro.txt`.
-    - Partes que **se mexem sozinhas** o tempo todo (ex.: o aviso "Announcement" que rola na barra de baixo do TS) não fazem gravar imagem nova: aparecem atualizadas **a cada 2 s**. Qualquer outra mudança (chat, lista) entra na hora, a 5 quadros/s. (Sem isso, o vídeo real dava ~6-7 GB/h; com isso, ~0,6-0,7 GB/h.)
+    - Na 1.4.3 a 1.5.1, o que se mexia sozinho (aviso "Announcement" rolando) só atualizava a cada 2 s; **na 1.6.0 isso saiu**: tudo a 30 fps. Como o vídeo tem só 30 s, o tamanho tem limite (~240-280 MB numa janela 2568x1374 com o aviso rolando, medido na simulação e no Wine; menos de 1 MB com a tela parada).
     - TS minimizado/fechado: o vídeo mostra uma **tela com o aviso** no lugar da janela (eu escolhi manter assim).
     - TS mudou de tamanho no meio: a imagem é ajustada ao tamanho do começo.
     - O "!next" aparece no chat do TS porque sai do próprio TS (ClientQuery). Eu preciso deixar **aberto e selecionado o chat privado com o bot** e **não minimizar** o TS (atrás do Tibia pode). Minimizado: o vídeo mostra um aviso no lugar da janela.
-    - Pasta `%LOCALAPPDATA%\NextTS\gravacoes`, nome `AAAA-MM-DD_HH-MM-SS_C1.avi` (`_teste` no Modo teste). **Nunca apaga vídeos antigos.** Acima de 1 GB continua em `_parte2`.
+    - Pasta `%LOCALAPPDATA%\NextTS\gravacoes`, nome `AAAA-MM-DD_HH-MM-SS_C1.avi` (`_teste` no Modo teste). **Nunca apaga vídeos antigos.** Os temporários ficam em `gravacoes\.temp` e são apagados quando a gravação termina.
     - Quadro igual ao anterior não é gravado de novo (vídeo menor). Formato AVI/MJPEG: abre no VLC.
     - Problema na gravação nunca atrapalha o monitoramento nem o envio.
     - Envio "por escrito" (digitar no TS) em vez do ClientQuery: eu disse **"deixa pra depois"**.
@@ -145,7 +151,7 @@ R9 - [ Aceitar 00:03 ] Upper Roshamuul (Tier 1): Next: Alxoff — aguardando ace
   - Comandos usados: `auth`, `use`, `whoami`, `serverconnectionhandlerlist`, `servervariable`, `clientvariable`, `channellist`, `clientlist -uid`, `channelvariable cid=X channel_description`, `sendtextmessage targetmode=1`, `clientnotifyregister` (para ver a resposta do bot).
   - O bot é achado pela **UID**, porque o número dele muda quando ele reconecta.
 - **Chave:** salva protegida pelo Windows (DPAPI). Dados em `%LOCALAPPDATA%\NextTS`: `preferencias.json`, `registro.txt` (log sem a chave), `instancia.json` e a pasta `gravacoes`.
-- **Gravação:** acha a janela do TS pelo programa (`ts3client_win64.exe`/`ts3client_win32.exe`): visível, sem dona, não é "janela de ferramenta", não está escondida (cloaked), pelo menos 200x150; a maior. Copia **só a área do conteúdo** (`GetClientRect` + `ClientToScreen`; sem barra de título nem borda invisível) tentando 3 jeitos (lembra o que funcionou): `PrintWindow(PW_CLIENTONLY|PW_RENDERFULLCONTENT)`/`PrintWindow(PW_CLIENTONLY)` (pega coberta), `GetDC` da janela + `BitBlt`, e direto da tela (só se a janela estiver visível na frente: 3 de 5 pontos com `WindowFromPoint`). Usa `CreateDIBSection`. Anota no `registro.txt` ("[gravação] ...") a janela escolhida, o jeito usado e os motivos das falhas. Detecta TS como administrador e Next TS não (aviso para abrir o Next TS como administrador). O app se declara "DPI aware" para pegar o tamanho real da janela. Grava AVI com imagens JPEG (biblioteca padrão do Go); quadros repetidos viram "pedaços vazios" (o tempo do vídeo continua certo). Decide se grava imagem nova comparando em quadradinhos de 32x32 (`frameDiff`): quadradinho que mudou em 6 das últimas 10 capturas "se mexe sozinho", e os vizinhos dele na mesma linha (até 4 para cada lado) também, porque texto rolando sempre entra em quadradinho novo pela ponta. Os avisos no lugar da janela usam letras da fonte DejaVu Sans Mono embutidas em `fonte_dados.go`.
+- **Gravação:** acha a janela do TS pelo programa (`ts3client_win64.exe`/`ts3client_win32.exe`): visível, sem dona, não é "janela de ferramenta", não está escondida (cloaked), pelo menos 200x150; a maior. Copia **só a área do conteúdo** (`GetClientRect` + `ClientToScreen`; sem barra de título nem borda invisível) tentando 3 jeitos (lembra o que funcionou): `PrintWindow(PW_CLIENTONLY|PW_RENDERFULLCONTENT)`/`PrintWindow(PW_CLIENTONLY)` (pega coberta), `GetDC` da janela + `BitBlt`, e direto da tela (só se a janela estiver visível na frente: 3 de 5 pontos com `WindowFromPoint`). Usa `CreateDIBSection`. Anota no `registro.txt` ("[gravação] ...") a janela escolhida, o jeito usado e os motivos das falhas. Detecta TS como administrador e Next TS não (aviso para abrir o Next TS como administrador). O app se declara "DPI aware" para pegar o tamanho real da janela. Grava AVI com imagens JPEG (biblioteca padrão do Go); quadros repetidos viram "pedaços vazios" (o tempo do vídeo continua certo). **1.6.0:** uma "câmera" captura a cada 1/30 s (horário fixo pelo relógio monotônico; captura e compressão rodam em paralelo, com duas imagens do Windows reaproveitadas, sem criar/apagar recursos a cada quadro; `captureRelease` solta tudo no fim). A imagem é dividida em faixas de 16 linhas (`mjpeg.go`): só as faixas que mudaram são comprimidas de novo (JPEG com marcadores de reinício RST, decodifica igual ao JPEG inteiro), e faixas iguais são compartilhadas entre quadros (contagem de referências). Cada gravação tem uma memória circular (quadros + instante) que guarda só os últimos 20 s (+2 s de folga); no envio, `Mark(T)` congela o começo em T-20 s e grava até T+10 s; o recorte é montado quadro a quadro (slot k = início + k/30 s mostra a última imagem capturada até ali; o 1º é sempre uma imagem completa). Limite de 256 MB de faixas na memória; passou disso, vão para um temporário rotativo (`gravacoes\.temp`, até 4 GB, reescrito sem o lixo). O vídeo é escrito em `.temp` e só no fim ganha o nome definitivo (nunca substitui um vídeo existente). TS fechado no começo: avisos no tamanho 1280x720, refeitos no tamanho da janela quando ela aparece. Os avisos no lugar da janela usam letras da fonte DejaVu Sans Mono embutidas em `fonte_dados.go`.
 - **Uma cópia só:** se abrir de novo, a cópia nova fecha (ou fecha a versão antiga, se for mais nova).
 - **Conecta sozinho:** se o TS abrir depois, o app conecta quando o TS estiver no servidor. Se a chave for recusada, para de tentar até eu colar outra.
 - **Escolha do canal:** prefere o que eu escolhi; depois, um canal que tenha a lista de verdade; depois, o nome "Claimeds". Canais de teste/erro/regras perdem pontos. Se o canal estiver sem lista, o app não deixa iniciar (já aconteceu de ele escolher "Claimed TEST", que estava vazio).
@@ -160,22 +166,24 @@ R9 - [ Aceitar 00:03 ] Upper Roshamuul (Tier 1): Next: Alxoff — aguardando ace
 | `main.go` | Servidor local, rotas `/api/...`, abre o navegador, uma cópia só, `initClock()` |
 | `app.go` | Motor: conexão, leitura a cada 0,5 s, Plano A/B, janela, atraso, envio, estado da janela |
 | `queue.go` | Lê a lista do x3tBot (formatos novo e antigo, tempo que falta, contagem do next) e confere se entende a lista (`ListHealth`) |
-| `record.go` | Gravação: arquivo AVI/MJPEG, só a janela do TS, imagem nova ou repetida (`frameDiff`), início/fim |
+| `record.go` | Gravação: câmera a 30 fps, memória circular de 20 s, recorte 20 s antes + 10 s depois (`Begin`, `Mark`, `End`, `Close`), arquivo AVI/MJPEG |
+| `mjpeg.go` | JPEG por faixas de 16 linhas com marcadores de reinício (só as faixas que mudaram são comprimidas de novo) |
 | `capture_windows.go` | Acha a janela do TS e copia a imagem dela (Windows) |
 | `capture_other.go` | Janela do TS de mentira para os testes no Linux (`NEXTTS_FAKE_TS`) |
 | `fonte_dados.go` | Letras dos avisos do vídeo (gerado por `build/gerar_fonte.py`) |
 | `window.go` | Janela de horário (`ParseHM`, `ResolveWindow`) e relógio (`now()`) |
 | `query.go` | Cliente do ClientQuery do TS3 |
-| `config.go` | Versão (`1.5.1`), preferências salvas (inclusive planos salvos), log em arquivo |
+| `config.go` | Versão (`1.6.0`), preferências salvas (inclusive planos salvos), log em arquivo |
 | `presets.go` | Atalhos de claim |
 | `catalog.go` | Lista dos respawns |
 | `platform_windows.go` / `platform_other.go` | DPAPI, abrir o navegador, caixas de mensagem |
 | `web/index.html` | A janelinha inteira (HTML, CSS e JS num arquivo só) |
 | `queue_test.go` | Testes da leitura da lista e da janela (`go test`) |
-| `record_test.go` | Testes do gravador e da comparação de nomes (`go test`) |
+| `record_test.go` | Testes do gravador (recorte, memória circular, temporário, captura lenta, envio cedo, novo monitoramento nos 10 s depois) e da comparação de nomes (`go test`) |
+| `mjpeg_test.go` | Testes do JPEG por faixas (igual ao JPEG inteiro) |
 | `capture_windows_test.go` | Teste da captura de verdade no Windows/Wine (`NEXTTS_WINE_TEST=1`, `desktop` ou `outro`; executável chamado `ts3client_...`) |
 | `testes/mock_ts3.py` | TeamSpeak simulado (ClientQuery falso com x3tBot e MissClick Bot Test) |
-| `testes/cenarios.py` | 85 cenários de ponta a ponta com o app de verdade (usa `ffprobe`/`ffmpeg` para conferir os vídeos) |
+| `testes/cenarios.py` | 89 cenários de ponta a ponta com o app de verdade (usa `ffprobe`/`ffmpeg` para conferir os vídeos) |
 | `testes/interface.py` | Testa a janelinha num Chromium (Playwright) e tira prints |
 | `build/gerar_recursos.py` | Gera ícone e informações de versão do .exe (`.syso`) |
 | `build/gerar_fonte.py` | Gera `fonte_dados.go` (letras da faixa do vídeo) |
@@ -185,14 +193,14 @@ R9 - [ Aceitar 00:03 ] Upper Roshamuul (Tier 1): Next: Alxoff — aguardando ace
 ### Como compilar e testar
 ```bash
 python3 build/gerar_fonte.py .
-python3 build/gerar_recursos.py . 1.5.1
+python3 build/gerar_recursos.py . 1.6.0
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -H windowsgui" -o "Next TS.exe" .
 python3 build/conferir_exe.py "Next TS.exe"
 go test ./...
-go build -race -o nextts-linux . && python3 -I testes/cenarios.py ./nextts-linux     # 85/85
+go build -race -o nextts-linux . && python3 -I testes/cenarios.py ./nextts-linux     # 89/89
 python3 -I testes/interface.py ./nextts-linux prints/                              # INTERFACE OK
 ```
-Variáveis só para testes: `NEXTTS_DATA` (pasta de dados), `NEXTTS_NO_BROWSER=1`, `NEXTTS_AUTO_EVERY`, `NEXTTS_TEST_CLOCK=HH:MM:SS` (simula o relógio), `NEXTTS_FAKE_TS=<arquivo>` (janela do TS de mentira no Linux: texto, `min` ou `none`; linha `ROLANDO: ...` vira um aviso rolando) e `NEXTTS_PRINTS=<pasta>` (salva imagens dos vídeos dos cenários) e `NEXTTS_ALERT_FAST=1` (avisos com tempos curtos: lista parada 3 s, formato 1,5 s, resposta 3 s).
+Variáveis só para testes: `NEXTTS_DATA` (pasta de dados), `NEXTTS_NO_BROWSER=1`, `NEXTTS_AUTO_EVERY`, `NEXTTS_TEST_CLOCK=HH:MM:SS` (simula o relógio), `NEXTTS_FAKE_TS=<arquivo>` (janela do TS de mentira no Linux: texto, `min`, `none` ou `falha`; linha `ROLANDO: ...` vira um aviso rolando; linha `RELOGIO` mostra a hora com milésimos), `NEXTTS_FAKE_SIZE=LxA` e `NEXTTS_FAKE_BG=<png>` (janela de mentira grande, com um print de fundo, para medir), `NEXTTS_MEDIR=1` (teste de medição do gravador) e `NEXTTS_PRINTS=<pasta>` (salva imagens dos vídeos dos cenários) e `NEXTTS_ALERT_FAST=1` (avisos com tempos curtos: lista parada 3 s, formato 1,5 s, resposta 3 s).
 
 O ZIP entregue tem: `Next-TS/Next TS.exe`, `Next-TS/LEIA-ME.txt` e `Next-TS/codigo-fonte/`.
 
@@ -211,6 +219,7 @@ O ZIP entregue tem: `Next-TS/Next TS.exe`, `Next-TS/LEIA-ME.txt` e `Next-TS/codi
 - **1.4.2 (13/10):** regra 2 nova: pega quem **já está** caçando sem next ao Iniciar (e na troca para o B), se a conta der dentro da janela; fora da janela ou com next, não falha e espera a próxima. Gravação: escolhe melhor a janela do TS, tenta 3 jeitos de copiar, anota tudo no `registro.txt`, avisa se o TS estiver como administrador. 76 cenários aprovados; captura testada no Wine também com o TS como outro programa. **Funcionou perfeitamente no TS real.**
 - **1.4.3 (13/10):** vídeo só com a janela do TS (sem faixa e sem bordas); o que se mexe sozinho (aviso rolando) atualiza a cada 2 s, o resto na hora (vídeo de ~6-7 GB/h para ~0,6-0,7 GB/h numa tela 2576x1408). 77 cenários aprovados. **VERSÃO FUNCIONAL (confirmada no TS real em 14/10; etiqueta `v1.4.3-funcional`).** (A tarja preta que aparecia na barra de título foi resolvida na 1.5.1.)
 - **1.5.0 (14/10):** avisos de lista parada (5 min) e de formato (10 s; linha sem tempo não é usada, com ou sem janela); conferência da resposta do bot ao !next (nunca manda 2º comando); Plano C; planos salvos; "Abrir último vídeo". 85 cenários aprovados.
+- **1.6.0 (04/11):** gravação a 30 fps fluida e vídeo de 30 s (20 s antes do envio + 10 s depois), memória circular de 20 s com imagens comprimidas por faixas, T = instante em que o comando sai pelo ClientQuery, captura do Windows sem criar recursos a cada quadro. 89 cenários aprovados; captura medida no Wine com janela 2568x1374.
 - **1.5.1 (14/10):** tarja preta do vídeo resolvida sem o `registro.txt`: medindo o meu vídeo, ela ficava toda dentro da barra de título do TS (linhas 8 a 30; o conteúdo começa na 31), que é desenhada pelo Windows. Agora grava só o conteúdo da janela (`PW_CLIENTONLY` / área do cliente), sem a barra de título e sem a borda invisível de 8 pontos das janelas maximizadas. Testado no Wine com uma tarja preta de verdade por cima da barra de título: o vídeo saiu sem ela, nos 3 jeitos de copiar.
 
 ---
@@ -222,7 +231,7 @@ O ZIP entregue tem: `Next-TS/Next TS.exe`, `Next-TS/LEIA-ME.txt` e `Next-TS/codi
 - Ainda não feitas: botão "Copiar lista", atalhos de teclado.
 - Achei desnecessário: acompanhar a fila.
 - Pendente: exemplos de resposta do x3tBot (prints do privado). A tarja preta foi resolvida na 1.5.1.
-- A 1.4.3 já foi testada no TS real e funciona (commit c5dbe5d). Próximo passo: testar a 1.5.1 no TS real, em Modo teste primeiro, com a gravação ligada.
+- A 1.4.3 já foi testada no TS real e funciona (commit c5dbe5d). Próximo passo: testar a 1.6.0 no TS real, em Modo teste primeiro, com a gravação ligada (conferir se o vídeo tem 30 s, o "!next" perto do segundo 20, e quantas capturas por segundo o PC consegue; o número fica na janelinha e no `registro.txt`).
 
 ## 8. Coisas que ficaram de fora na conversa anterior
 

@@ -229,10 +229,17 @@ func (q *Query) Close() {
 
 // Command envia um comando já montado e devolve as linhas de dados.
 func (q *Query) Command(cmd string) ([]map[string]string, error) {
+	rows, _, err := q.commandAt(cmd)
+	return rows, err
+}
+
+// commandAt é o Command que também diz o instante em que o comando terminou de sair
+// para o TeamSpeak (zero se nem chegou a sair).
+func (q *Query) commandAt(cmd string) ([]map[string]string, time.Time, error) {
 	q.cmdMu.Lock()
 	defer q.cmdMu.Unlock()
 	if !q.Alive() {
-		return nil, ErrDisconnected
+		return nil, time.Time{}, ErrDisconnected
 	}
 	// Linhas soltas de antes (não deveriam existir) seriam confundidas com a resposta.
 	for drained := false; !drained; {
@@ -245,8 +252,9 @@ func (q *Query) Command(cmd string) ([]map[string]string, error) {
 	q.conn.SetWriteDeadline(time.Now().Add(cmdTimeout))
 	if _, err := q.conn.Write([]byte(cmd + "\n")); err != nil {
 		q.Close()
-		return nil, ErrDisconnected
+		return nil, time.Time{}, ErrDisconnected
 	}
+	sent := time.Now()
 	deadline := time.Now().Add(cmdTimeout)
 	var rows []map[string]string
 	for {
@@ -255,20 +263,20 @@ func (q *Query) Command(cmd string) ([]map[string]string, error) {
 			// Sem resposta: a sequência de respostas ficou incerta. Não reutilizar.
 			q.Close()
 			if errors.Is(err, ErrDisconnected) {
-				return nil, ErrDisconnected
+				return nil, sent, ErrDisconnected
 			}
-			return nil, err
+			return nil, sent, err
 		}
 		if strings.HasPrefix(l, "error ") {
 			st := ParseRows(strings.TrimPrefix(l, "error "))
 			if len(st) == 0 {
-				return nil, errors.New("resposta inválida do TeamSpeak")
+				return nil, sent, errors.New("resposta inválida do TeamSpeak")
 			}
 			id, _ := strconv.Atoi(st[0]["id"])
 			if id != 0 {
-				return nil, &QueryError{ID: id, Msg: st[0]["msg"]}
+				return nil, sent, &QueryError{ID: id, Msg: st[0]["msg"]}
 			}
-			return rows, nil
+			return rows, sent, nil
 		}
 		rows = append(rows, ParseRows(l)...)
 	}
@@ -409,6 +417,13 @@ func (q *Query) Description(cid int) (string, error) {
 
 // SendPrivate manda uma mensagem privada para o cliente clid.
 func (q *Query) SendPrivate(clid int, msg string) error {
-	_, err := q.Command("sendtextmessage targetmode=1 target=" + strconv.Itoa(clid) + " msg=" + Escape(msg))
+	_, err := q.SendPrivateAt(clid, msg)
 	return err
+}
+
+// SendPrivateAt é o SendPrivate que devolve o instante em que o comando saiu para o
+// TeamSpeak (zero se nem chegou a sair). É o "T" da gravação.
+func (q *Query) SendPrivateAt(clid int, msg string) (time.Time, error) {
+	_, at, err := q.commandAt("sendtextmessage targetmode=1 target=" + strconv.Itoa(clid) + " msg=" + Escape(msg))
+	return at, err
 }

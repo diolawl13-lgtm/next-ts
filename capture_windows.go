@@ -18,7 +18,6 @@ package main
 
 import (
 	"fmt"
-	"image"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -293,6 +292,7 @@ var (
 	capBest   = -1    // último jeito que funcionou
 	capNote   string  // última anotação no registro (não repete)
 	capLogged = false // já anotou as janelas do TS encontradas
+	capDIB    [2]*dib // imagens do Windows reaproveitadas entre as capturas (duas, alternadas)
 )
 
 func capLog(format string, args ...any) {
@@ -322,7 +322,11 @@ func visibleOnTop(h uintptr, r rect) bool {
 	return hits >= 3
 }
 
-func captureTS() (*image.RGBA, capState) {
+// captureTS copia o conteúdo da janela do TS para a memória de imagem buf (0 ou 1).
+// Devolve a imagem em BGRA (4 bytes por ponto), que fica nessa memória, reaproveitada:
+// vale até a próxima captura nela (ou até captureRelease). Assim, a 30 quadros por
+// segundo, nada de criar e apagar imagens do Windows a cada quadro.
+func captureTS(buf int) ([]byte, int, int, capState) {
 	tsWinMu.Lock()
 	defer tsWinMu.Unlock()
 	h := tsWin
@@ -342,38 +346,35 @@ func captureTS() (*image.RGBA, capState) {
 	}
 	if h == 0 {
 		capLog("nenhuma janela do TeamSpeak encontrada")
-		return nil, capNotFound
+		return nil, 0, 0, capNotFound
 	}
 	if isIconic(h) {
 		capLog("janela do TeamSpeak minimizada")
-		return nil, capMinimized
+		return nil, 0, 0, capMinimized
 	}
 	c, ok := clientRect(h)
 	w, ht := int(c.Right-c.Left), int(c.Bottom-c.Top) // o vídeo tem o tamanho do conteúdo da janela
 	if !ok || w <= 0 || ht <= 0 || w > maxCaptureSide || ht > maxCaptureSide {
 		capLog("tamanho da janela estranho: %s", describeWindow(h))
-		return nil, capFailed
+		return nil, 0, 0, capFailed
 	}
 
 	// Ordem: primeiro o jeito que funcionou da última vez, depois os outros.
-	order := []int{capPrintFull, capPrint, capWindowDC, capScreen}
-	if capBest > 0 {
-		order = append([]int{capBest}, order...)
-	}
+	order := [...]int{capBest, capPrintFull, capPrint, capWindowDC, capScreen}
 	var fails []string
 	sawBlack := false
-	tried := map[int]bool{}
+	var tried [capMethods]bool
 	for _, m := range order {
-		if tried[m] || capSkip[m] {
+		if m < 0 || tried[m] || capSkip[m] {
 			continue
 		}
 		tried[m] = true
-		img, why := captureWith(m, h, c)
-		if img == nil {
+		if why := grab(m, h, c, buf); why != "" {
 			fails = append(fails, capMethodName[m]+": "+why)
 			continue
 		}
-		if allBlack(img) {
+		pix := capDIB[buf].pix()
+		if allBlack(asImage(pix, w, ht)) {
 			sawBlack = true
 			fails = append(fails, capMethodName[m]+": imagem toda preta")
 			continue
@@ -382,18 +383,31 @@ func captureTS() (*image.RGBA, capState) {
 			fileLog("[gravação] copiando a janela do TeamSpeak por: %s (%dx%d)", capMethodName[m], w, ht)
 		}
 		capBest, capNote = m, ""
-		return img, capOK
+		return pix, w, ht, capOK
 	}
 	capBest = -1
 	if tsAdminAndMeNot(h) {
 		capLog("o TeamSpeak está como administrador e o Next TS não. Falhas: %s", strings.Join(fails, "; "))
-		return nil, capElevated
+		return nil, 0, 0, capElevated
 	}
 	capLog("não consegui copiar %s. Falhas: %s", describeWindow(h), strings.Join(fails, "; "))
 	if sawBlack {
-		return image.NewRGBA(image.Rect(0, 0, w, ht)), capOK // o gravador mostra o aviso de "imagem preta"
+		return nil, 0, 0, capBlack // o gravador mostra o aviso de "imagem preta"
 	}
-	return nil, capFailed
+	return nil, 0, 0, capFailed
+}
+
+// captureRelease solta a imagem do Windows guardada entre as capturas (quando a
+// gravação para).
+func captureRelease() {
+	tsWinMu.Lock()
+	defer tsWinMu.Unlock()
+	for i, d := range capDIB {
+		if d != nil {
+			d.free()
+			capDIB[i] = nil
+		}
+	}
 }
 
 // clientRect: a área do conteúdo da janela (sem barra de título e bordas), em pontos da tela.
@@ -439,73 +453,60 @@ func (d *dib) free() {
 	procDeleteDC.Call(d.mem)
 }
 
-// crop copia um pedaço (x, y, w, h) da imagem do Windows para uma imagem RGBA.
-func (d *dib) crop(x, y, w, h int) *image.RGBA {
+// pix: os pontos da imagem (BGRA), direto na memória do Windows.
+func (d *dib) pix() []byte {
 	procGdiFlush.Call()
-	src := unsafe.Slice((*byte)(d.bits), d.w*d.h*4)
-	img := image.NewRGBA(image.Rect(0, 0, w, h))
-	for row := 0; row < h; row++ {
-		so := ((y+row)*d.w + x) * 4
-		do := row * img.Stride
-		s, p := src[so:so+w*4], img.Pix[do:do+w*4]
-		for i := 0; i < len(p); i += 4 { // BGRA → RGBA
-			p[i], p[i+1], p[i+2], p[i+3] = s[i+2], s[i+1], s[i], 255
-		}
-	}
-	return img
+	return unsafe.Slice((*byte)(d.bits), d.w*d.h*4)
 }
 
-// captureWith copia o conteúdo da janela (área c, em pontos da tela) por um dos jeitos.
-// Devolve a imagem ou o motivo da falha.
-func captureWith(m int, h uintptr, c rect) (*image.RGBA, string) {
+// grab copia o conteúdo da janela (área c, em pontos da tela) para capDIB[buf] por um
+// dos jeitos. "" = deu certo; senão, o motivo da falha. Precisa do tsWinMu.
+func grab(m int, h uintptr, c rect, buf int) string {
 	w, ht := int(c.Right-c.Left), int(c.Bottom-c.Top)
 	if m == capScreen && !visibleOnTop(h, c) {
-		return nil, "TS não está visível na frente"
+		return "TS não está visível na frente"
 	}
 	screen, _, _ := procGetDC.Call(0)
 	if screen == 0 {
-		return nil, "GetDC falhou"
+		return "GetDC falhou"
 	}
 	defer procReleaseDC.Call(0, screen)
-
+	if d := capDIB[buf]; d != nil && (d.w != w || d.h != ht) {
+		d.free() // a janela mudou de tamanho
+		capDIB[buf] = nil
+	}
+	if capDIB[buf] == nil {
+		d, why := newDIB(screen, w, ht)
+		if d == nil {
+			return why
+		}
+		capDIB[buf] = d
+	}
+	d := capDIB[buf]
+	var ok uintptr
+	var e error
 	switch m {
 	case capPrintFull, capPrint:
 		// Pede ao Windows só o conteúdo (PW_CLIENTONLY): ele já vem sem a barra de título.
-		d, why := newDIB(screen, w, ht)
-		if d == nil {
-			return nil, why
-		}
-		defer d.free()
 		flags := uintptr(pwClientOnly)
 		if m == capPrintFull {
 			flags |= pwRenderFullContent
 		}
-		if ok, _, e := procPrintWindow.Call(h, d.mem, flags); ok == 0 {
-			return nil, fmt.Sprintf("o Windows recusou (%v)", e)
+		ok, _, e = procPrintWindow.Call(h, d.mem, flags)
+	case capWindowDC:
+		cdc, _, e2 := procGetDC.Call(h) // só o conteúdo da janela
+		if cdc == 0 {
+			return fmt.Sprintf("GetDC da janela falhou (%v)", e2)
 		}
-		return d.crop(0, 0, w, ht), ""
-	case capWindowDC, capScreen:
-		d, why := newDIB(screen, w, ht)
-		if d == nil {
-			return nil, why
-		}
-		defer d.free()
-		var ok uintptr
-		var e error
-		if m == capWindowDC {
-			cdc, _, e2 := procGetDC.Call(h) // só o conteúdo da janela
-			if cdc == 0 {
-				return nil, fmt.Sprintf("GetDC da janela falhou (%v)", e2)
-			}
-			ok, _, e = procBitBlt.Call(d.mem, 0, 0, uintptr(w), uintptr(ht), cdc, 0, 0, srcCopy)
-			procReleaseDC.Call(h, cdc)
-		} else {
-			ok, _, e = procBitBlt.Call(d.mem, 0, 0, uintptr(w), uintptr(ht), screen, uintptr(c.Left), uintptr(c.Top), srcCopy|captureBlt)
-		}
-		if ok == 0 {
-			return nil, fmt.Sprintf("o Windows recusou (%v)", e)
-		}
-		return d.crop(0, 0, w, ht), ""
+		ok, _, e = procBitBlt.Call(d.mem, 0, 0, uintptr(w), uintptr(ht), cdc, 0, 0, srcCopy)
+		procReleaseDC.Call(h, cdc)
+	case capScreen:
+		ok, _, e = procBitBlt.Call(d.mem, 0, 0, uintptr(w), uintptr(ht), screen, uintptr(c.Left), uintptr(c.Top), srcCopy|captureBlt)
+	default:
+		return "jeito desconhecido"
 	}
-	return nil, "jeito desconhecido"
+	if ok == 0 {
+		return fmt.Sprintf("o Windows recusou (%v)", e)
+	}
+	return ""
 }

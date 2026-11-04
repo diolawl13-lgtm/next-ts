@@ -737,7 +737,7 @@ func (a *App) Start(p StartParams) error {
 			a.addLog("warn", "Não consegui começar a gravação (%s). O monitoramento continua, sem gravar.", err.Error())
 		} else {
 			a.mon.Record = true
-			a.addLog("info", "Gravando a janela do TeamSpeak em vídeo: %s", file)
+			a.addLog("info", "Gravando a janela do TeamSpeak a 30 fps (guardo só os últimos 20 s; o vídeo fica com 20 s antes e 10 s depois do envio): %s", file)
 		}
 	}
 	a.addLog("info", "Iniciado: Plano A %s, 1º next.%s", code, extra)
@@ -793,12 +793,9 @@ func (a *App) finish(id int, phase, status, kind, logText string) {
 	a.mon.pendingAt = time.Time{}
 	a.mon.WaitingFor = ""
 	a.addLog(kind, "%s", logText)
-	// Gravação: depois de enviar (ou do teste), continua mais 10 s para pegar a resposta do bot.
-	if phase == "sent" || phase == "tested" {
-		a.rec.End(RecTailSent)
-	} else {
-		a.rec.End(RecTailOther)
-	}
+	// Gravação: depois de enviar (ou do "teria enviado"), o instante T já foi marcado e o
+	// vídeo continua até T + 10 s (End não muda nada). Sem envio: últimos 20 s + 2 s.
+	a.rec.End(RecTailOther)
 }
 
 func (a *App) randomDelay() time.Duration {
@@ -1479,6 +1476,7 @@ func (a *App) send(ctx context.Context, p runParams, code string, waited time.Du
 		return
 	}
 	if p.TestMode {
+		a.rec.Mark(time.Now(), "tested") // vídeo: 20 s antes e 10 s depois do "teria enviado"
 		a.finish(p.id, "tested", fmt.Sprintf("Teste concluído: eu teria enviado \"%s\" para %s.", message, p.botName),
 			"ok", fmt.Sprintf("MODO TESTE: teria enviado \"%s\" para %s (após %s s). Nada foi enviado.", message, p.botName, secs(waited)))
 		return
@@ -1493,7 +1491,12 @@ func (a *App) send(ctx context.Context, p runParams, code string, waited time.Du
 	if !still {
 		return
 	}
-	err = q.SendPrivate(clid, message)
+	sentAt, err := q.SendPrivateAt(clid, message)
+	// Vídeo: T = o instante em que o comando saiu pelo ClientQuery (marcado depois, sem
+	// atrasar nada). Se o TeamSpeak recusou, nada foi despachado: não marca.
+	if !sentAt.IsZero() && !errors.As(err, new(*QueryError)) {
+		a.rec.Mark(sentAt, "sent")
+	}
 	switch {
 	case err == nil:
 		a.mu.Lock()
