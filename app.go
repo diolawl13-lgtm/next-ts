@@ -85,6 +85,7 @@ type MonitorView struct {
 	PendingMs    int    `json:"pendingMs"`          // falta para enviar (se aguardando)
 	StartedAt    string `json:"startedAt"`
 	WaitGiveUp   bool   `json:"waitGiveUp"`  // opção "esperar o next desistir" ligada
+	Duration     string `json:"duration"`    // tempo personalizado do claim ("2:10"; vazio = sem)
 	WaitingFor   string `json:"waitingFor"`  // esperando esta pessoa desistir do next (vazio = não)
 	Record       bool   `json:"record"`      // gravando em vídeo
 	StaleAlert   string `json:"staleAlert"`  // aviso: a lista parou de atualizar
@@ -133,6 +134,7 @@ type App struct {
 		runID  int
 		code   string
 		botUID string
+		dur    string // tempo pedido no comando ("2:10"; vazio = sem tempo)
 		at     time.Time
 		open   bool
 	}
@@ -239,6 +241,16 @@ func (a *App) checkReply(bot, msg string) {
 		a.addLog("err", "Atenção: a resposta de %s parece um erro. O app não manda outro comando; confira no TeamSpeak.", bot)
 	default:
 		a.addLog("warn", "Não consegui confirmar pela resposta de %s se você ficou em 1º no %s. Confira no TeamSpeak.", bot, code)
+	}
+	// Tempo personalizado: confere o tempo que o bot diz ter reservado.
+	if want := a.await.dur; want != "" {
+		if h, m, ok := reservedTime(msg); ok {
+			if got := FmtDuration(h, m); got != want {
+				a.addLog("warn", "Atenção: você pediu %s de claim, mas %s respondeu que reservou %s. Confira no TeamSpeak.", want, bot, got)
+			} else {
+				a.addLog("ok", "Tempo reservado pelo bot: %s (o que você pediu).", got)
+			}
+		}
 	}
 }
 
@@ -616,6 +628,10 @@ type StartParams struct {
 	TestMode    bool   `json:"testMode"`
 	WaitGiveUp  bool   `json:"waitGiveUp"` // esperar o next desistir
 	Record      bool   `json:"record"`     // gravar a janela do TS em vídeo
+	// Tempo personalizado do claim: "!next C1 2:10" (desligado = "!next C1").
+	UseDuration bool `json:"useDuration"`
+	DurHours    int  `json:"durHours"`
+	DurMinutes  int  `json:"durMinutes"`
 }
 
 type runParams struct {
@@ -654,6 +670,11 @@ func (a *App) Start(p StartParams) error {
 	}
 	if len(plans) > 2 {
 		codeC = plans[2]
+	}
+	if p.UseDuration {
+		if err := ValidateDuration(p.DurHours, p.DurMinutes); err != nil {
+			return errors.New("tempo personalizado inválido: " + err.Error())
+		}
 	}
 	var win Window
 	if p.WindowOn {
@@ -709,6 +730,10 @@ func (a *App) Start(p StartParams) error {
 		a.set.WindowStart, a.set.WindowEnd = p.WindowStart, p.WindowEnd
 	}
 	a.set.WaitGiveUp, a.set.Record = p.WaitGiveUp, p.Record
+	a.set.UseDuration = p.UseDuration
+	if p.UseDuration {
+		a.set.DurHours, a.set.DurMinutes = p.DurHours, p.DurMinutes
+	}
 	a.saveSettings()
 
 	a.runs++
@@ -716,6 +741,9 @@ func (a *App) Start(p StartParams) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	a.mon = MonitorView{Running: true, Phase: "watching", Code: code, Plan: "A", CodeA: code, CodeB: codeB, CodeC: codeC, Window: win.Text,
 		TestMode: p.TestMode, WaitGiveUp: p.WaitGiveUp, Status: "Lendo a lista...", StartedAt: now().Format("15:04:05"), cancel: cancel, runID: rp.id}
+	if p.UseDuration {
+		a.mon.Duration = FmtDuration(p.DurHours, p.DurMinutes)
+	}
 	extra := ""
 	if codeB != "" {
 		extra += " Plano B: " + codeB + "."
@@ -740,7 +768,18 @@ func (a *App) Start(p StartParams) error {
 			a.addLog("info", "Gravando a janela do TeamSpeak a 30 fps (guardo só os últimos 20 s; o vídeo fica com 20 s antes e 10 s depois do envio): %s", file)
 		}
 	}
-	a.addLog("info", "Iniciado: Plano A %s, 1º next.%s", code, extra)
+	cmds := NextCommand(code, p.UseDuration, p.DurHours, p.DurMinutes)
+	if codeB != "" {
+		cmds += " (Plano B: " + NextCommand(codeB, p.UseDuration, p.DurHours, p.DurMinutes)
+		if codeC != "" {
+			cmds += "; Plano C: " + NextCommand(codeC, p.UseDuration, p.DurHours, p.DurMinutes)
+		}
+		cmds += ")"
+	}
+	if p.UseDuration {
+		extra += " Tempo personalizado: " + a.mon.Duration + "."
+	}
+	a.addLog("info", "Iniciado: Plano A %s, 1º next.%s Comando: %s.", code, extra, cmds)
 	go a.run(ctx, rp)
 	return nil
 }
@@ -1441,7 +1480,13 @@ func (a *App) reconnect(p runParams) {
 }
 
 func (a *App) send(ctx context.Context, p runParams, code string, waited time.Duration) {
-	message := "!next " + code
+	// O comando é montado aqui, na hora de enviar, com o tempo escolhido ao Iniciar
+	// (durante o monitoramento o tempo não pode ser mudado).
+	message := NextCommand(code, p.UseDuration, p.DurHours, p.DurMinutes)
+	dur := ""
+	if p.UseDuration {
+		dur = FmtDuration(p.DurHours, p.DurMinutes)
+	}
 	a.op.Lock()
 	defer a.op.Unlock()
 	if ctx.Err() != nil {
@@ -1501,6 +1546,7 @@ func (a *App) send(ctx context.Context, p runParams, code string, waited time.Du
 	case err == nil:
 		a.mu.Lock()
 		a.await.runID, a.await.code, a.await.botUID, a.await.at, a.await.open = p.id, code, p.BotUID, time.Now(), true
+		a.await.dur = dur
 		a.mon.ReplyKind, a.mon.ReplyText = "wait", ""
 		a.mu.Unlock()
 		a.finish(p.id, "sent", fmt.Sprintf("Enviado: \"%s\" para %s às %s.", message, p.botName, now().Format("15:04:05")),
@@ -1551,6 +1597,9 @@ type StateView struct {
 	WindowEnd   string        `json:"windowEnd"`
 	WaitGiveUp  bool          `json:"waitGiveUp"`
 	Record      bool          `json:"record"`
+	UseDuration bool          `json:"useDuration"`
+	DurHours    int           `json:"durHours"`
+	DurMinutes  int           `json:"durMinutes"`
 	Rec         RecView       `json:"rec"`
 	Now         string        `json:"now"` // relógio usado (o do Windows)
 	Monitor     MonitorView   `json:"monitor"`
@@ -1583,9 +1632,31 @@ func (a *App) State() StateView {
 		Servers: a.servers, Handler: a.handler, Channels: a.channels, Cid: a.cid, Clients: a.clients, BotUID: a.botUID,
 		Code: a.set.Code, CodeB: a.set.CodeB, CodeC: a.set.CodeC, WindowOn: a.set.WindowOn, WindowStart: a.set.WindowStart, WindowEnd: a.set.WindowEnd,
 		WaitGiveUp: a.set.WaitGiveUp, Record: a.set.Record, Rec: rec,
+		UseDuration: a.set.UseDuration, DurHours: a.set.DurHours, DurMinutes: a.set.DurMinutes,
 		Now:     now().Format("15:04:05"),
 		Monitor: m, Log: logs, Presets: a.presetViews(), Favorites: append([]Favorite{}, a.set.Favorites...), MaxPlans: MaxPlans, Version: Version,
 	}
+}
+
+// SetDuration guarda o tempo personalizado do claim (para voltar igual ao abrir o app).
+// Durante o monitoramento não muda: o comando já está definido; para mudar, Parar e
+// Iniciar de novo.
+func (a *App) SetDuration(on bool, h, m int) error {
+	valid := ValidateDuration(h, m)
+	if on && valid != nil {
+		return errors.New("tempo personalizado inválido: " + valid.Error())
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.mon.Running {
+		return errors.New("pare o monitoramento antes de mudar o tempo do claim")
+	}
+	a.set.UseDuration = on
+	if valid == nil {
+		a.set.DurHours, a.set.DurMinutes = h, m
+	}
+	a.saveSettings()
+	return nil
 }
 
 // ---------- Planos salvos (favoritos) ----------
@@ -1624,6 +1695,13 @@ func (a *App) SaveFavorite(f Favorite) error {
 		codes = codes[:MaxPlans]
 	}
 	f.Codes = codes
+	if f.UseDuration != nil && *f.UseDuration {
+		if err := ValidateDuration(f.DurHours, f.DurMinutes); err != nil {
+			return errors.New("tempo personalizado inválido: " + err.Error())
+		}
+	} else if f.UseDuration != nil {
+		f.DurHours, f.DurMinutes = 0, 0
+	}
 	if f.WindowOn {
 		if _, ok := ParseHM(f.WindowStart); !ok {
 			return errors.New("horário da janela inválido")

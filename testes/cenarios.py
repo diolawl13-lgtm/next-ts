@@ -100,11 +100,13 @@ class App:
             f.write(text)
         os.replace(tmp, self.tswin)
 
-    def start(self, code="C1", codeB="", win=None, test=False, wait=False, rec=False, codeC=""):
+    def start(self, code="C1", codeB="", win=None, test=False, wait=False, rec=False, codeC="", dur=None):
         s = self.state()
         body = {"handler": s["handler"], "cid": s["cid"], "botUID": s["botUID"], "code": code, "codeB": codeB, "codeC": codeC,
                 "windowOn": bool(win), "windowStart": win[0] if win else "", "windowEnd": win[1] if win else "",
                 "testMode": test, "waitGiveUp": wait, "record": rec}
+        if dur is not None:  # tempo personalizado do claim: (horas, minutos)
+            body.update(useDuration=True, durHours=dur[0], durMinutes=dur[1])
         return self.api("start", body)
 
     def videos(self):
@@ -137,7 +139,8 @@ def reset_mock():
     with mock.lock:
         mock.sent.clear(); mock.commands.clear()
     mock.ts_connected = True; mock.bot_clid = 7; mock.bot_present = True
-    mock.reply_from_bot = True; mock.reply_tmpl = "Você entrou na posição 1 da fila de {code}. Tempo reservado: 2:00."
+    mock.reply_from_bot = True; mock.reply_tmpl = "Você entrou na posição 1 da fila de {code}. Tempo reservado: {time}."
+    mock.reserved_override = ""
     mock.slow_send = 0; mock.refuse_send = False; mock.noise = True
     mock.key = KEY; mock.second_bot = True; mock.description2 = ""
     mock.set_desc(desc(*OUTRAS))
@@ -1898,6 +1901,115 @@ def t89_imagem_parada_na_borda_do_corte(app):
     size = os.path.getsize(v)
     print(f"    {len(st['pts'])} imagens diferentes; {size / 1e3:.0f} KB")
     assert len(st["pts"]) <= 3 and size < 400_000, (len(st["pts"]), size)
+
+
+# ---------------------------------------------------------------- 1.7.0: tempo personalizado do claim
+
+@scenario
+def t90_tempo_personalizado_no_comando(app):
+    connected(app)
+    mock.set_desc(desc(*OUTRAS))
+    st, r = app.start("C1", dur=(2, 10))
+    assert st == 200, r
+    assert app.mon()["duration"] == "2:10", app.mon()
+    assert any("Comando: !next C1 2:10." in x and "Tempo personalizado: 2:10." in x for x in logs(app)), logs(app)
+    s = app.state()
+    assert s["useDuration"] is True and s["durHours"] == 2 and s["durMinutes"] == 10, s  # lembrado
+    entra()
+    assert wait(lambda: mock.sent, 5), "não enviou"
+    assert [m[2] for m in mock.sent] == ["!next C1 2:10"], mock.sent  # exatamente isto, uma vez
+    assert wait(lambda: app.mon()["phase"] == "sent", 3)
+    assert any('ENVIADO "!next C1 2:10"' in x for x in logs(app)), logs(app)
+    assert wait(lambda: any("Tempo reservado pelo bot: 2:10" in x for x in logs(app)), 3), logs(app)
+    assert app.mon()["replyKind"] == "ok", app.mon()
+
+
+@scenario
+def t91_sem_tempo_e_modo_teste_com_tempo(app):
+    connected(app)
+    mock.set_desc(desc(*OUTRAS))
+    # Sem a opção: o formato de sempre.
+    app.start("C1")
+    assert any("Comando: !next C1." in x for x in logs(app)), logs(app)
+    entra()
+    assert wait(lambda: mock.sent, 5)
+    assert [m[2] for m in mock.sent] == ["!next C1"], mock.sent
+    assert app.mon()["duration"] == "" and app.state()["useDuration"] is False
+    assert wait(lambda: app.mon()["phase"] == "sent", 3)
+    # Modo teste com tempo (0:05) e Plano B: mostra o comando completo e não envia nada.
+    mock.sent.clear()
+    mock.set_desc(desc(*OUTRAS))
+    time.sleep(0.6)
+    st, r = app.start("C1", codeB="A2", test=True, dur=(0, 5))
+    assert st == 200, r
+    assert any("Comando: !next C1 0:05 (Plano B: !next A2 0:05)." in x for x in logs(app)), logs(app)
+    entra()
+    assert wait(lambda: app.mon()["phase"] == "tested", 5), app.mon()
+    assert any('teria enviado "!next C1 0:05"' in x for x in logs(app)), logs(app)
+    assert not mock.sent, mock.sent
+
+
+@scenario
+def t92_tempo_invalido_e_recusado(app):
+    connected(app)
+    mock.set_desc(desc(*OUTRAS))
+    for dur, why in [((0, 0), "zero"), ((2, 60), "minutos vão de 0 a 59"), ((-1, 10), "negativa"), ((2, -5), "negativa"), ((100, 0), "até 99")]:
+        st, r = app.start("C1", dur=dur)
+        assert st == 400 and why in r["error"], (dur, st, r)
+        assert not app.mon()["running"]
+    st, r = app.api("duration", {"useDuration": True, "durHours": 0, "durMinutes": 0})
+    assert st == 400 and "zero" in r["error"], r
+    s = app.state()
+    assert s["useDuration"] is False and s["durHours"] == 2 and s["durMinutes"] == 0, s  # nada foi salvo
+    entra()
+    time.sleep(1.5)
+    assert not mock.sent
+
+
+@scenario
+def t93_tempo_lembrado_ao_abrir_o_app(app):
+    connected(app)
+    mock.set_desc(desc(*OUTRAS))
+    st, r = app.api("duration", {"useDuration": True, "durHours": 1, "durMinutes": 45})
+    assert st == 200, r
+    st, r = app.api("fav/save", {"name": "Longo", "codes": ["C1"], "useDuration": True, "durHours": 3, "durMinutes": 5})
+    assert st == 200, r
+    st, r = app.api("fav/save", {"name": "Ruim", "codes": ["C1"], "useDuration": True, "durHours": 0, "durMinutes": 0})
+    assert st == 400 and "zero" in r["error"], r
+    app.close()
+    app2 = App(app.data)
+    try:
+        assert wait(lambda: app2.state()["connected"], 6)
+        s = app2.state()
+        assert s["useDuration"] is True and s["durHours"] == 1 and s["durMinutes"] == 45, s
+        fav = s["favorites"][0]
+        assert fav["useDuration"] is True and fav["durHours"] == 3 and fav["durMinutes"] == 5, fav
+        # Durante o monitoramento o tempo não muda (o comando já está definido).
+        st, r = app2.start("C1", dur=(1, 45))
+        assert st == 200, r
+        st, r = app2.api("duration", {"useDuration": True, "durHours": 2, "durMinutes": 0})
+        assert st == 400 and "pare o monitoramento" in r["error"].lower(), r
+        app2.api("stop", {})
+        # Desligar guarda desligado, mas lembra os números.
+        st, r = app2.api("duration", {"useDuration": False, "durHours": 1, "durMinutes": 45})
+        assert st == 200, r
+        s = app2.state()
+        assert s["useDuration"] is False and s["durHours"] == 1 and s["durMinutes"] == 45, s
+    finally:
+        app2.close()
+
+
+@scenario
+def t94_bot_reservou_outro_tempo(app):
+    connected(app)
+    mock.set_desc(desc(*OUTRAS))
+    mock.reserved_override = "2:00"  # o bot reservou menos do que o pedido
+    app.start("C1", dur=(2, 30))
+    entra()
+    assert wait(lambda: mock.sent, 5)
+    assert mock.sent[0][2] == "!next C1 2:30", mock.sent
+    assert wait(lambda: any("você pediu 2:30 de claim" in x and "reservou 2:00" in x for x in logs(app)), 3), logs(app)
+    assert not any("Tempo reservado pelo bot" in x for x in logs(app))
 
 
 print()

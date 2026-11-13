@@ -47,7 +47,9 @@ class MockTS3:
         self.noise = True             # manda notificações não pedidas no meio das respostas
         self.reply_from_bot = True
         # Resposta do bot ao !next (como a do MissClick Bot Test de verdade).
-        self.reply_tmpl = "Você entrou na posição 1 da fila de {code}. Tempo reservado: 2:00."
+        # {code} = respawn do comando; {time} = tempo pedido ("!next C1 2:10") ou 2:00 (padrão).
+        self.reply_tmpl = "Você entrou na posição 1 da fila de {code}. Tempo reservado: {time}."
+        self.reserved_override = ""   # se preenchido, o bot "reserva" este tempo em vez do pedido
         self.slow_send = 0.0
         self.refuse_send = False
         self.conns = []
@@ -180,7 +182,11 @@ class MockTS3:
                         threading.Timer(0.05, self._send, (c, echo)).start()
                         if self.reply_from_bot:
                             bname, buid = ("MissClick\\sBot\\sTest", "MCBOT\\/xyz=") if tgt == 21 else ("x3tBot\\sKalibra", "BOTUID+abc\\/=")
-                            rep = f"notifytextmessage schandlerid=1 targetmode=1 msg={esc('[b]' + self.reply_tmpl.format(code=msg.split(' ')[-1]) + '[/b]')} target=5 invokerid={tgt} invokername={bname} invokeruid={buid}\n\r"
+                            parts = msg.split()
+                            code = parts[1] if len(parts) > 1 else ""
+                            tm = self.reserved_override or (parts[2] if len(parts) > 2 else "2:00")
+                            text = self.reply_tmpl.format(code=code, time=tm)
+                            rep = f"notifytextmessage schandlerid=1 targetmode=1 msg={esc('[b]' + text + '[/b]')} target=5 invokerid={tgt} invokername={bname} invokeruid={buid}\n\r"
                             threading.Timer(0.3, self._send, (c, rep)).start()
                 else:
                     out += "error id=256 msg=command\\snot\\sfound\n\r"

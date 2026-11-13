@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-const Version = "1.6.0"
+const Version = "1.7.0"
 
 // Preset é um "atalho de claim": de onde ler (canal) e para quem mandar (bot).
 // Guarda o UID do bot (estável) e os nomes só para mostrar.
@@ -31,6 +31,11 @@ type Favorite struct {
 	WindowEnd   string   `json:"windowEnd"`
 	WaitGiveUp  bool     `json:"waitGiveUp"`
 	Record      bool     `json:"record"`
+	// Tempo personalizado do claim (1.7.0). nil = plano salvo antes da 1.7.0: ao carregar,
+	// não mexe no tempo que estiver escolhido.
+	UseDuration *bool `json:"useDuration,omitempty"`
+	DurHours    int   `json:"durHours,omitempty"`
+	DurMinutes  int   `json:"durMinutes,omitempty"`
 }
 
 // Settings são as escolhas lembradas entre uma abertura e outra.
@@ -50,8 +55,11 @@ type Settings struct {
 	WindowOn      bool       `json:"windowOn"`
 	WindowStart   string     `json:"windowStart"`
 	WindowEnd     string     `json:"windowEnd"`
-	WaitGiveUp    bool       `json:"waitGiveUp"` // esperar o next desistir
-	Record        bool       `json:"record"`     // gravar a janela do TS em vídeo
+	WaitGiveUp    bool       `json:"waitGiveUp"`  // esperar o next desistir
+	Record        bool       `json:"record"`      // gravar a janela do TS em vídeo
+	UseDuration   bool       `json:"useDuration"` // tempo personalizado do claim ("!next C1 2:10")
+	DurHours      int        `json:"durHours"`
+	DurMinutes    int        `json:"durMinutes"`
 	Presets       []Preset   `json:"presets"`
 	Favorites     []Favorite `json:"favorites"` // planos salvos
 	// Atalhos sugeridos automaticamente que o usuário apagou (não recriar).
@@ -61,7 +69,7 @@ type Settings struct {
 func presetKey(channelName, botUID string) string { return channelName + "\x00" + botUID }
 
 func defaultSettings() Settings {
-	return Settings{Port: 25639, Remember: true, Code: "C1", WindowStart: "20:00", WindowEnd: "22:30"}
+	return Settings{Port: 25639, Remember: true, Code: "C1", WindowStart: "20:00", WindowEnd: "22:30", DurHours: 2}
 }
 
 func (s *Settings) savedKey() string {
@@ -109,6 +117,9 @@ func (st *Store) Load() Settings {
 	}
 	if s.Port <= 0 || s.Port > 65535 {
 		s.Port = 25639
+	}
+	if ValidateDuration(s.DurHours, s.DurMinutes) != nil { // arquivo mexido à mão: volta ao padrão
+		s.UseDuration, s.DurHours, s.DurMinutes = false, 2, 0
 	}
 	if _, ok := ParseHM(s.WindowStart); !ok {
 		s.WindowStart = "20:00"

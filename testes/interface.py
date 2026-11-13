@@ -231,6 +231,81 @@ try:
         assert pg.is_checked("#windowOn") and pg.is_checked("#waitGiveUp") and pg.is_checked("#record")
         pg.locator("#favBox").scroll_into_view_if_needed()
         pg.screenshot(path=f"{OUT}/12-planos-salvos-e-plano-c.png", full_page=True)
+
+        # 1.7.0: tempo personalizado do claim
+        def shot_dur(name):  # a opção, os campos e o comando (para a prévia)
+            pg.evaluate("document.getElementById('durOn').closest('label').scrollIntoView({block: 'center'})")
+            time.sleep(0.1)
+            a = pg.locator("#durOn").locator("xpath=ancestor::label").bounding_box()
+            z = pg.locator("#durHint").bounding_box()
+            pg.screenshot(path=f"{OUT}/{name}", clip={"x": 0, "y": a["y"] - 6, "width": 504, "height": z["y"] + z["height"] - a["y"] + 12})
+        pg.uncheck("#windowOn"); pg.uncheck("#record"); pg.uncheck("#waitGiveUp")
+        pg.locator("#durOn").scroll_into_view_if_needed()
+        assert not pg.is_checked("#durOn") and pg.is_disabled("#durH") and pg.is_disabled("#durM")
+        assert "sem tempo" in pg.inner_text("#durHint"), pg.inner_text("#durHint")
+        shot_dur("15a-tempo-desligado.png")
+        pg.locator("#preview").screenshot(path=f"{OUT}/15b-previa-sem-tempo.png")
+        assert "!next C1 (ou !next A1 no Plano B, !next Y11 no Plano C)" in pg.inner_text("#preview"), pg.inner_text("#preview")
+        pg.check("#durOn")
+        time.sleep(0.2)
+        assert not pg.is_disabled("#durH")
+        pg.fill("#durH", "2"); pg.fill("#durM", "10"); pg.press("#durM", "Tab")
+        time.sleep(0.3)
+        hint = pg.inner_text("#durHint")
+        assert "!next C1 2:10" in hint and "2 horas e 10 minutos" in hint, hint
+        pv = pg.inner_text("#preview")
+        assert "!next C1 2:10 (ou !next A1 2:10 no Plano B, !next Y11 2:10 no Plano C)" in pv, pv
+        shot_dur("15c-tempo-2h10.png")
+        pg.locator("#preview").screenshot(path=f"{OUT}/15d-previa-com-tempo.png")
+        pg.select_option("#codeSel", "D7")  # troca o respawn: a prévia acompanha
+        time.sleep(0.2)
+        assert "!next D7 2:10" in pg.inner_text("#preview") and "!next D7 2:10" in pg.inner_text("#durHint"), pg.inner_text("#preview")
+        pg.select_option("#codeSel", "C1")
+        pg.fill("#durM", "5"); pg.press("#durM", "Tab")  # minutos sempre com 2 algarismos
+        time.sleep(0.2)
+        assert pg.input_value("#durM") == "05" and "!next C1 2:05" in pg.inner_text("#preview"), pg.input_value("#durM")
+        for h, m, why in [("2", "75", "0 a 59"), ("0", "0", "zero"), ("0", "00", "zero"), ("-1", "10", "negativa"), ("", "10", "Preencha"), ("2", "x", "só números")]:
+            pg.fill("#durH", h); pg.fill("#durM", m)
+            time.sleep(0.15)
+            assert why in pg.inner_text("#durHint") and pg.is_disabled("#go"), (h, m, pg.inner_text("#durHint"))
+            if (h, m) == ("2", "75"):
+                shot_dur("15e-tempo-invalido.png")
+            assert "Arrume o tempo personalizado" in pg.inner_text("#preview"), pg.inner_text("#preview")
+        pg.fill("#durH", "2"); pg.fill("#durM", "30"); pg.press("#durM", "Tab")
+        time.sleep(0.4)
+        assert not pg.is_disabled("#go")
+        pg.locator("#durOn").scroll_into_view_if_needed()
+        pg.screenshot(path=f"{OUT}/13-tempo-personalizado.png", full_page=True)
+        pg.locator("#durOn").locator("xpath=ancestor::label").screenshot(path=f"{OUT}/13b-opcao-tempo.png")
+        pg.reload()  # lembrado ao abrir de novo
+        pg.wait_for_selector("#pill")
+        pg.wait_for_function("document.getElementById('pill').textContent.includes('Conectado')", timeout=5000)
+        time.sleep(0.8)
+        assert pg.is_checked("#durOn") and pg.input_value("#durH") == "2" and pg.input_value("#durM") == "30", \
+            (pg.is_checked("#durOn"), pg.input_value("#durH"), pg.input_value("#durM"))
+        # Iniciar (modo teste): o tempo trava e o comando completo aparece no Histórico.
+        mock.set_desc(desc(*OUTRAS))
+        pg.check("#testMode")
+        time.sleep(0.3)
+        pg.click("#go")
+        pg.wait_for_function("document.getElementById('go').textContent.includes('Parar')")
+        time.sleep(0.4)
+        assert pg.is_disabled("#durOn") and pg.is_disabled("#durH") and pg.is_disabled("#durM")
+        assert "tempo 2:30" in pg.inner_text("#summary"), pg.inner_text("#summary")
+        pg.locator("#cardStatus").screenshot(path=f"{OUT}/14-monitorando-com-tempo.png")
+        n = len(mock.sent)
+        mock.set_desc(desc(OCUP0, *OUTRAS))
+        pg.wait_for_function("document.getElementById('log').innerText.includes('teria enviado')", timeout=6000)
+        assert 'teria enviado "!next C1 2:30"' in pg.inner_text("#log"), pg.inner_text("#log")
+        assert len(mock.sent) == n
+        pg.uncheck("#testMode")
+        pg.uncheck("#durOn")  # desligado: volta ao formato de sempre
+        time.sleep(0.3)
+        assert "!next C1 (ou" in pg.inner_text("#preview"), pg.inner_text("#preview")
+        pg.reload()
+        pg.wait_for_selector("#pill")
+        time.sleep(1.2)
+        assert not pg.is_checked("#durOn") and pg.input_value("#durH") == "2" and pg.input_value("#durM") == "30"
         b.close()
     errors = [e for e in errors if "status of 400" not in e]  # 400 = chave errada, esperado
     assert not errors, errors

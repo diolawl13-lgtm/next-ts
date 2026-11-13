@@ -2,7 +2,7 @@
 
 App para Windows que vigia a lista de claimeds do **x3tBot** no **TeamSpeak 3** e manda `!next CÓDIGO` no privado do bot quando alguém entra na hunt do respawn escolhido. Envia uma única vez.
 
-**Versão atual: 1.6.0**
+**Versão atual: 1.7.0**
 
 ## O que ele faz
 - Lê a lista do canal **Claimeds** a cada 0,5 s, pelo plugin **ClientQuery** do TeamSpeak.
@@ -14,6 +14,7 @@ App para Windows que vigia a lista de claimeds do **x3tBot** no **TeamSpeak 3** 
 - Lê o formato antigo e o novo da lista do x3tBot.
 - **Esperar o next desistir** (opcional): se alguém entra na hunt já com next, espera o next sair da fila e então envia; se o next entrar na hunt, o plano falha.
 - **Gravação em vídeo** (opcional) da janela do TeamSpeak: só a janela do TS, **30 fps · 20 s antes + 10 s depois** do envio (vídeo de 30 s). Enquanto espera, guarda só os últimos 20 s (memória circular de imagens já comprimidas). Salva em `%LOCALAPPDATA%\NextTS\gravacoes` (AVI/MJPEG, abre no VLC).
+- **Tempo personalizado do claim** (opcional): `!next C1 2:10` = 2 horas e 10 minutos (desligado: `!next C1`). Validado (sem zero, sem negativo, minutos até 59), lembrado ao abrir o app e nos planos salvos.
 - Modo teste (não envia nada).
 
 ## Como usar
@@ -22,7 +23,7 @@ Veja o [build/LEIA-ME.txt](build/LEIA-ME.txt).
 ## Como compilar (Go 1.24)
 ```bash
 python3 build/gerar_fonte.py .        # letras dos avisos do vídeo (fonte_dados.go)
-python3 build/gerar_recursos.py . 1.6.0
+python3 build/gerar_recursos.py . 1.7.0
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -H windowsgui" -o "Next TS.exe" .
 python3 build/conferir_exe.py "Next TS.exe"
 ```
@@ -31,7 +32,7 @@ python3 build/conferir_exe.py "Next TS.exe"
 ```bash
 go test ./...
 go build -race -o nextts-linux .
-python3 -I testes/cenarios.py ./nextts-linux        # 89 cenários com TeamSpeak simulado (precisa do ffmpeg/ffprobe)
+python3 -I testes/cenarios.py ./nextts-linux        # 94 cenários com TeamSpeak simulado (precisa do ffmpeg/ffprobe)
 python3 -I testes/interface.py ./nextts-linux prints/  # janelinha no Chromium (precisa do Playwright)
 ```
 
@@ -42,6 +43,7 @@ python3 -I testes/interface.py ./nextts-linux prints/  # janelinha no Chromium (
 | `app.go` | Motor: conexão, leitura, planos A/B, janela, envio |
 | `queue.go` | Leitura da lista do x3tBot |
 | `record.go` | Gravação em vídeo: câmera a 30 fps, memória circular de 20 s, recorte 20 s antes + 10 s depois do envio, AVI/MJPEG |
+| `claimtime.go` | Tempo personalizado do claim: monta `!next C1 2:10` e confere a duração |
 | `mjpeg.go` | JPEG por faixas de 16 linhas (só as faixas que mudaram são comprimidas de novo) |
 | `capture_windows.go` / `capture_other.go` | Imagem da janela do TS (Windows) / janela simulada (testes) |
 | `fonte_dados.go` | Letras dos avisos do vídeo (gerado por `build/gerar_fonte.py`) |

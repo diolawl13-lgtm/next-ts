@@ -284,6 +284,15 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if err = readJSON(r, &body); err == nil {
 			err = s.app.Select(body.Cid, body.BotUID)
 		}
+	case "/api/duration":
+		var body struct {
+			UseDuration bool `json:"useDuration"`
+			DurHours    int  `json:"durHours"`
+			DurMinutes  int  `json:"durMinutes"`
+		}
+		if err = readJSON(r, &body); err == nil {
+			err = s.app.SetDuration(body.UseDuration, body.DurHours, body.DurMinutes)
+		}
 	case "/api/preset/save":
 		var body struct {
 			Name   string `json:"name"`

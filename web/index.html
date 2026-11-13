@@ -236,6 +236,8 @@ select:disabled { cursor: default; }
 .winRow { display: flex; gap: 8px; align-items: center; margin: 6px 0 0 23px; font-size: 12.5px; }
 .winRow input { width: 76px; flex: 0 0 auto; padding: 6px 8px; text-align: center; font: bold 14px Consolas, "Courier New", monospace; color: var(--gold2); }
 .winRow.off { opacity: .45; }
+.winRow.durRow input { width: 52px; }
+.hint code, .check small code { color: var(--gold2); }
 #winHint { margin-left: 23px; }
 .clock { margin-top: 10px; font-size: 12px; color: var(--muted); }
 .clock b { color: var(--gold2); font: bold 13px Consolas, "Courier New", monospace; }
@@ -385,6 +387,14 @@ select:disabled { cursor: default; }
       <div class="hint">Só é usado se o Plano B também falhar. Depois não volta para o A nem para o B.</div>
     </div>
   </div>
+  <label class="check"><input type="checkbox" id="durOn">
+    <span>Usar tempo personalizado
+    <small>A duração do claim (quanto tempo de hunt você quer) vai junto no comando. Ex.: <code>!next C1 2:10</code> = 2 horas e 10 minutos. Desligado, manda só <code>!next C1</code>, como sempre.</small></span></label>
+  <div class="winRow durRow" id="durRow">
+    <input type="text" id="durH" maxlength="2" inputmode="numeric" autocomplete="off" placeholder="2" aria-label="Horas"><span>h</span>
+    <input type="text" id="durM" maxlength="2" inputmode="numeric" autocomplete="off" placeholder="00" aria-label="Minutos"><span>min</span>
+  </div>
+  <div class="hint" id="durHint">&nbsp;</div>
   <div class="row" style="margin-top:8px"><button class="link shrink" id="saveFav" type="button">Salvar este plano (respawns, janela e opções)</button></div>
   <label class="check"><input type="checkbox" id="windowOn">
     <span>Monitorar janela de início
@@ -521,7 +531,35 @@ function heroMood(S) {
 
 let S = null;                 // último estado vindo do app
 let catalog = [];
-let form = { handler: 0, cid: 0, botUID: "", code: "C1", codeB: "", codeC: "", windowOn: false, windowStart: "20:00", windowEnd: "22:30", testMode: false, waitGiveUp: false, record: false };
+let form = { handler: 0, cid: 0, botUID: "", code: "C1", codeB: "", codeC: "", windowOn: false, windowStart: "20:00", windowEnd: "22:30", testMode: false, waitGiveUp: false, record: false,
+  durOn: false, durH: "2", durM: "00" };
+
+// Tempo personalizado do claim: "!next C1 2:10" (desligado: "!next C1").
+// As mesmas regras do app (claimtime.go): horas 0 a 99, minutos 0 a 59, sem zero e sem negativo.
+function durInfo() {
+  if (!form.durOn) return { ok: true, text: "" };
+  const hs = String(form.durH).trim(), ms = String(form.durM).trim();
+  if (hs === "" || ms === "") return { ok: false, err: "Preencha as horas e os minutos (ex.: 2 h 10 min)." };
+  if (/-/.test(hs + ms)) return { ok: false, err: "A duração não pode ser negativa." };
+  if (!/^\d{1,2}$/.test(hs) || !/^\d{1,2}$/.test(ms)) return { ok: false, err: "Use só números: horas de 0 a 99 e minutos de 0 a 59." };
+  const h = +hs, m = +ms;
+  if (m > 59) return { ok: false, err: "Os minutos vão de 0 a 59." };
+  if (h === 0 && m === 0) return { ok: false, err: "A duração não pode ser zero." };
+  return { ok: true, h, m, text: h + ":" + String(m).padStart(2, "0") };
+}
+function nextCmd(code, d) { return "!next " + code + (d && d.text ? " " + d.text : ""); }
+function durWords(d) {
+  const p = [];
+  if (d.h) p.push(d.h + (d.h === 1 ? " hora" : " horas"));
+  if (d.m) p.push(d.m + (d.m === 1 ? " minuto" : " minutos"));
+  return p.join(" e ");
+}
+// Guarda o tempo escolhido (volta igual quando abrir o app de novo). Inválido: não guarda.
+function saveDur() {
+  if (form.durOn && !durInfo().ok) return;
+  const d = durInfo();
+  api("duration", { useDuration: form.durOn, durHours: d.ok && form.durOn ? d.h : (+form.durH || 0), durMinutes: d.ok && form.durOn ? d.m : (+form.durM || 0) }).catch(() => {});
+}
 let syncLists = true;         // próxima leitura copia canal/bot escolhidos pelo app
 let firstState = true;
 let busy = false;
@@ -609,24 +647,35 @@ function renderForm() {
   if (!form.windowOn) wh.textContent = "Desligado: pega a qualquer hora.";
   else if (badWin) wh.textContent = "Preencha os dois horários (ex.: 20:00 e 22:30).";
   else wh.textContent = "Pega só se a hunt for começar entre " + form.windowStart + " e " + form.windowEnd + (we < ws ? " (passa da meia-noite)" : "") + ". Passou das " + form.windowEnd + ", o app para sozinho.";
+  // Tempo personalizado do claim
+  const di = durInfo();
+  const badDur = form.durOn && !di.ok;
+  $("durRow").classList.toggle("off", !form.durOn);
+  $("durH").disabled = $("durM").disabled = !form.durOn || !!running;
+  const dh = $("durHint"), sample = ci.ok ? ci.c : "C1";
+  dh.className = "hint" + (badDur ? " err" : "");
+  dh.textContent = "";
+  if (!form.durOn) dh.append("Desligado: o comando vai sem tempo.");
+  else if (badDur) dh.append(di.err);
+  else { const cd = document.createElement("code"); cd.textContent = nextCmd(sample, di); dh.append("Comando: ", cd, " (" + durWords(di) + " de claim)."); }
   const bn = botName(form.botUID);
   const pv = $("preview");
   pv.textContent = "";
-  if (ci.ok && bn && !badB && !badC) {
+  if (ci.ok && bn && !badB && !badC && !badDur) {
     pv.append(form.testMode ? "Modo teste: mostraria " : "Vai enviar ");
-    const c = document.createElement("code"); c.textContent = "!next " + ci.c; pv.append(c);
-    if (hasB) { pv.append(" (ou "); const c2 = document.createElement("code"); c2.textContent = "!next " + ciB.c; pv.append(c2, " no Plano B"); }
-    if (hasC) { pv.append(", "); const c3 = document.createElement("code"); c3.textContent = "!next " + ciC.c; pv.append(c3, " no Plano C"); }
+    const c = document.createElement("code"); c.textContent = nextCmd(ci.c, di); pv.append(c);
+    if (hasB) { pv.append(" (ou "); const c2 = document.createElement("code"); c2.textContent = nextCmd(ciB.c, di); pv.append(c2, " no Plano B"); }
+    if (hasC) { pv.append(", "); const c3 = document.createElement("code"); c3.textContent = nextCmd(ciC.c, di); pv.append(c3, " no Plano C"); }
     if (hasB) pv.append(")");
     pv.append(" para " + bn + ", uma única vez, quando o 1º next estiver livre (já ao Iniciar ou quando alguém entrar na hunt" + (form.waitGiveUp ? "; se já tiver next, quando ele desistir" : "") + ")" + (form.windowOn && !badWin ? " e a sua hunt for começar entre " + form.windowStart + " e " + form.windowEnd : "") + ".");
     if (form.record) pv.append(" Grava vídeo da janela do TeamSpeak (30 fps: 20 s antes + 10 s depois do envio).");
   } else {
-    pv.append(!bn ? "Escolha acima quem recebe o comando." : badB ? "Arrume o Plano B ou escolha \"Sem Plano B\"." : badC ? "Arrume o Plano C ou escolha \"Sem Plano C\"." : "Escolha o respawn do Plano A.");
+    pv.append(!bn ? "Escolha acima quem recebe o comando." : badB ? "Arrume o Plano B ou escolha \"Sem Plano B\"." : badC ? "Arrume o Plano C ou escolha \"Sem Plano C\"." : badDur ? "Arrume o tempo personalizado (ou desligue a opção)." : "Escolha o respawn do Plano A.");
   }
   $("recHint").classList.toggle("hidden", !form.record || !!running);
   const go = $("go");
   if (running) { go.className = "stop"; go.textContent = "Parar"; go.disabled = false; }
-  else { go.className = "start"; go.textContent = form.testMode ? "Iniciar teste" : "Iniciar"; go.disabled = !connected || !ci.ok || !bn || !form.cid || badB || badC || badWin || busy; }
+  else { go.className = "start"; go.textContent = form.testMode ? "Iniciar teste" : "Iniciar"; go.disabled = !connected || !ci.ok || !bn || !form.cid || badB || badC || badWin || badDur || busy; }
   $("openVideo").disabled = !(S && S.rec && S.rec.hasLast);
 }
 
@@ -686,10 +735,12 @@ function render() {
     $("windowOn").checked = form.windowOn; $("winStart").value = form.windowStart; $("winEnd").value = form.windowEnd;
     form.waitGiveUp = !!S.waitGiveUp; form.record = !!S.record;
     $("waitGiveUp").checked = form.waitGiveUp; $("record").checked = form.record;
+    form.durOn = !!S.useDuration; form.durH = String(S.durHours ?? 2); form.durM = String(S.durMinutes ?? 0).padStart(2, "0");
+    $("durOn").checked = form.durOn; $("durH").value = form.durH; $("durM").value = form.durM;
     $("port").value = S.port || 25639;
     $("remember").checked = S.hasSavedKey ? true : S.remember !== false;
   }
-  for (const id of ["server", "channel", "bot", "code", "codeSel", "codeB", "codeSelB", "codeC", "codeSelC", "windowOn", "testMode", "waitGiveUp", "record", "savePreset", "saveFav"]) $(id).disabled = S.monitor.running;
+  for (const id of ["server", "channel", "bot", "code", "codeSel", "codeB", "codeSelB", "codeC", "codeSelC", "windowOn", "testMode", "waitGiveUp", "record", "durOn", "savePreset", "saveFav"]) $(id).disabled = S.monitor.running;
   renderFavs();
   if ($("clock").textContent !== S.now) $("clock").textContent = S.now || "--:--:--";
   renderForm();
@@ -715,7 +766,7 @@ function render() {
   const sum = $("summary");
   if (m.running) {
     sum.classList.remove("hidden");
-    sum.textContent = (m.testMode ? "Modo teste · " : "") + "1º next" + (m.waitGiveUp ? " · espera o next desistir" : "") + " · comando para " + botName(S.botUID) + (m.window ? " · janela " + m.window : " · sem janela de horário") + " · relógio " + S.now;
+    sum.textContent = (m.testMode ? "Modo teste · " : "") + "1º next" + (m.duration ? " · tempo " + m.duration : "") + (m.waitGiveUp ? " · espera o next desistir" : "") + " · comando para " + botName(S.botUID) + (m.window ? " · janela " + m.window : " · sem janela de horário") + " · relógio " + S.now;
   } else sum.classList.add("hidden");
   const pl = $("planline");
   const showPlans = m.codeA && (m.running || ["sent", "tested", "failed", "ended", "stopped", "error"].includes(m.phase));
@@ -1004,6 +1055,7 @@ function renderFavs() {
     const b = document.createElement("button");
     b.type = "button"; b.className = "chip"; b.disabled = S.monitor.running;
     b.title = (f.codes || []).map((c, i) => "Plano " + "ABC"[i] + ": " + c).join(" · ") + (f.windowOn ? " · janela " + f.windowStart + "–" + f.windowEnd : " · sem janela") +
+      (f.useDuration ? " · tempo " + f.durHours + ":" + String(f.durMinutes || 0).padStart(2, "0") : "") +
       (f.waitGiveUp ? " · espera o next desistir" : "") + (f.record ? " · grava vídeo" : "");
     const name = document.createElement("span"); name.textContent = f.name;
     const x = document.createElement("span"); x.className = "x"; x.textContent = "×"; x.title = "Apagar este plano salvo";
@@ -1021,6 +1073,12 @@ function renderFavs() {
       $("windowOn").checked = form.windowOn; $("winStart").value = form.windowStart; $("winEnd").value = form.windowEnd;
       form.waitGiveUp = !!f.waitGiveUp; form.record = !!f.record;
       $("waitGiveUp").checked = form.waitGiveUp; $("record").checked = form.record;
+      if (f.useDuration !== undefined) { // plano salvo antes da 1.7.0 não mexe no tempo
+        form.durOn = !!f.useDuration;
+        if (f.useDuration) { form.durH = String(f.durHours); form.durM = String(f.durMinutes || 0).padStart(2, "0"); }
+        $("durOn").checked = form.durOn; $("durH").value = form.durH; $("durM").value = form.durM;
+        saveDur();
+      }
       renderForm(); peekSoon(); hideNotice();
     };
     box.append(b);
@@ -1032,8 +1090,10 @@ $("saveFav").onclick = () => {
   const name = prompt("Nome do plano salvo (ex.: Noite):", "");
   if (name === null) return;
   const codes = [form.code, form.codeB, form.codeB ? form.codeC : ""].filter(Boolean).map(c => codeInfo(c).c);
+  const d = durInfo();
+  if (!d.ok) { alertBox("Arrume o tempo personalizado (ou desligue a opção) antes de salvar."); return; }
   action(() => api("fav/save", { name: name.trim(), codes, windowOn: form.windowOn, windowStart: form.windowStart, windowEnd: form.windowEnd,
-    waitGiveUp: form.waitGiveUp, record: form.record }));
+    waitGiveUp: form.waitGiveUp, record: form.record, useDuration: form.durOn, durHours: form.durOn ? d.h : 0, durMinutes: form.durOn ? d.m : 0 }));
 };
 $("openVideo").onclick = () => action(() => api("openvideo", {}));
 $("windowOn").onchange = () => { form.windowOn = $("windowOn").checked; renderForm(); };
@@ -1052,6 +1112,15 @@ for (const [id, key] of [["winStart", "windowStart"], ["winEnd", "windowEnd"]]) 
 $("testMode").onchange = () => { form.testMode = $("testMode").checked; renderForm(); };
 $("waitGiveUp").onchange = () => { form.waitGiveUp = $("waitGiveUp").checked; renderForm(); };
 $("record").onchange = () => { form.record = $("record").checked; renderForm(); };
+$("durOn").onchange = () => { form.durOn = $("durOn").checked; renderForm(); saveDur(); };
+for (const [id, key] of [["durH", "durH"], ["durM", "durM"]]) {
+  $(id).oninput = () => { form[key] = $(id).value; renderForm(); };
+  $(id).addEventListener("change", () => {
+    const v = $(id).value.trim();
+    if (/^\d{1,2}$/.test(v)) $(id).value = form[key] = key === "durM" ? String(+v).padStart(2, "0") : String(+v);
+    renderForm(); saveDur();
+  });
+}
 $("openRec").onclick = () => action(() => api("openrec", {}));
 $("go").onclick = () => action(async () => {
   if (S.monitor.running) { await api("stop", {}); return; }
@@ -1059,8 +1128,13 @@ $("go").onclick = () => action(async () => {
   const ciB = codeInfo(form.codeB), ciC = codeInfo(form.codeC);
   await api("start", { handler: form.handler, cid: form.cid, botUID: form.botUID, code: ci.c, codeB: form.codeB ? ciB.c : "", codeC: form.codeB && form.codeC ? ciC.c : "",
     windowOn: form.windowOn, windowStart: form.windowStart, windowEnd: form.windowEnd, testMode: form.testMode,
-    waitGiveUp: form.waitGiveUp, record: form.record });
+    waitGiveUp: form.waitGiveUp, record: form.record, ...durParams() });
 });
+// O tempo vai para o app como números; o comando é montado lá, na hora de enviar.
+function durParams() {
+  const d = durInfo();
+  return { useDuration: form.durOn, durHours: form.durOn ? d.h : 0, durMinutes: form.durOn ? d.m : 0 };
+}
 $("quit").onclick = async () => {
   if (S && S.monitor.running && !confirm("O monitoramento está ligado. Fechar mesmo assim?")) return;
   try { await api("quit", {}); } catch (e) {}

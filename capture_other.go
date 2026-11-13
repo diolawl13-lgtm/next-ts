@@ -104,7 +104,11 @@ func captureTS(buf int) ([]byte, int, int, capState) {
 	y := h*400/640 + 10
 	for _, ln := range strings.Split(text, "\n") {
 		if rest, ok := strings.CutPrefix(ln, "ROLANDO: "); ok {
-			x := w - int(time.Now().UnixMilli()/20%int64(w+600)) // anda 1 ponto a cada 20 ms
+			// Anda 1 ponto a cada 20 ms, da direita para a esquerda, e volta a entrar pela
+			// direita. Sempre tem pelo menos 2 letras na tela (sem fase vazia, em que nada
+			// se mexeria e o teste da fluidez não mediria nada).
+			span := w - 2*fontW + textWidth(rest, 1) - 2*fontW
+			x := w - fontW - int(time.Now().UnixMilli()/20%int64(span))
 			drawText(img, x, h-25, rest, ink, 1)
 			continue
 		}

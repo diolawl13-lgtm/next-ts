@@ -1,5 +1,35 @@
-NEXT TS 1.6.0 - COMO USAR
+NEXT TS 1.7.0 - COMO USAR
 ==========================
+
+NOVIDADES DA 1.7.0: TEMPO PERSONALIZADO DO CLAIM
+------------------------------------------------
+- Caixinha "Usar tempo personalizado", logo abaixo dos planos A, B e C,
+  com um campo de HORAS e outro de MINUTOS.
+- Ligada, o comando vai com a duração do claim (quanto tempo de hunt você
+  quer): "!next C1 2:10" = C1 por 2 horas e 10 minutos. Os minutos vão
+  sempre com dois números (2 h 5 min = "2:05").
+  Não é o horário nem o atraso do envio: é só a duração da hunt.
+- Desligada, o comando é o de sempre: "!next C1".
+- Embaixo dos campos aparece o comando completo, ex.: "Comando:
+  !next C1 2:10". O resumo antes do botão Iniciar também mostra o
+  comando de cada plano (A, B e C usam a mesma duração). Os dois mudam na
+  hora quando você troca o respawn ou a duração.
+- O app não aceita: duração zerada (0 h 00 min), número negativo,
+  minutos acima de 59 ou campo vazio. Aí aparece o aviso em vermelho e o
+  botão Iniciar fica travado até arrumar (ou desligar a opção).
+  O app NÃO aplica limite de ranking: você escolhe o tempo. (O campo de
+  horas só aceita até 99, para não passar um número digitado errado.)
+- Fica salvo: ao abrir o app de novo, a caixinha e o tempo voltam como
+  você deixou. Também entra nos "planos salvos".
+- Durante o monitoramento o tempo fica travado (o comando que vai sair já
+  está definido). Para mudar: Parar, mudar o tempo e Iniciar de novo.
+- O Histórico mostra o comando completo ao Iniciar ("Comando: !next C1
+  2:10") e no "ENVIADO". Quando o bot responde "Tempo reservado: ...",
+  o app confere: se for diferente do que você pediu, avisa em amarelo
+  para conferir no TeamSpeak (o app não manda outro comando).
+- Lembrete: o app não aperta Enter nem usa texto digitado no chat. Ele
+  monta o comando na hora de enviar e manda pelo próprio TeamSpeak
+  (ClientQuery), como sempre. Não precisa deixar nada digitado.
 
 NOVIDADES DA 1.6.0 (só a gravação de vídeo mudou)
 -------------------------------------------------
@@ -289,6 +319,8 @@ USO NORMAL
 2. Abra o Next TS.
 3. Escolha o Plano A (ex.: C1 - Livraria de Fire), o Plano B se quiser,
    ligue a janela de início se quiser, e clique em Iniciar.
+   (Para pedir uma duração, ex. 2 h 10 min, marque "Usar tempo
+   personalizado" e preencha as horas e os minutos antes do Iniciar.)
    (Se o respawn não estiver na lista, escolha "Outro código" no final
    e digite o código.)
 4. Pode minimizar a janelinha e jogar. NÃO feche a janelinha:
